@@ -10,3 +10,4 @@ metals.sbt
 SYSTEM_RUNNING
 .gradle
 build
+jdk

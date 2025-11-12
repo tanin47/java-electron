@@ -1,9 +1,9 @@
-package tanin.ejwf;
-
+package tanin.jpsi;
 
 import com.renomad.minum.web.FullSystem;
 import com.renomad.minum.web.Response;
 import com.renomad.minum.web.StatusLine;
+import tanin.ejwf.MinumBuilder;
 
 import java.io.IOException;
 import java.util.Map;
@@ -13,7 +13,6 @@ import java.util.logging.Logger;
 import static com.renomad.minum.web.RequestLine.Method.GET;
 
 public class Main {
-
   private static final Logger logger = Logger.getLogger(Main.class.getName());
 
   static {
@@ -25,16 +24,17 @@ public class Main {
     }
   }
 
-  public static void main(String[] args) {
-    var main = new Main(9090);
+  public static void main(String[] args) throws Exception {
+    var main = new Main(0);
     main.start();
+    var browser = new Browser(args, "http://localhost:8443", false, false);
     main.minum.block();
   }
 
   int port;
   public FullSystem minum;
 
-  Main(int port) {
+  public Main(int port) {
     this.port = port;
   }
 

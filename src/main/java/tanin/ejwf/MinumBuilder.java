@@ -99,7 +99,7 @@ public class MinumBuilder {
               Map.of(
                 "Content-Type", "image/png"
               ),
-              Main.class.getResourceAsStream("/assets/" + assetPath).readAllBytes()
+              MinumBuilder.class.getResourceAsStream("/assets/" + assetPath).readAllBytes()
             );
           }
 
@@ -131,7 +131,7 @@ public class MinumBuilder {
           }
 
           var assetPath = matcher.group("assetPath");
-          var resource = Main.class.getResourceAsStream("/assets/" + assetPath);
+          var resource = MinumBuilder.class.getResourceAsStream("/assets/" + assetPath);
 
           if (resource == null) {
             return Response.buildLeanResponse(StatusLine.StatusCode.CODE_404_NOT_FOUND);

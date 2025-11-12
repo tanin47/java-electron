@@ -1,1 +1,1 @@
-rootProject.name = "embeddable-java-web-framework"
+rootProject.name = "jpsi"

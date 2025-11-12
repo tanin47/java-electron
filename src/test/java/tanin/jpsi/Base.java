@@ -1,4 +1,4 @@
-package tanin.ejwf;
+package tanin.jpsi;
 
 import org.junit.jupiter.api.*;
 import org.openqa.selenium.*;

@@ -11,10 +11,10 @@ plugins {
     id("com.gradleup.shadow") version "9.2.2"
 }
 
-group = "tanin.ejwf"
+group = "tanin.jpsi"
 version = "1.0.0"
 
-description = "Embeddable Java Web Framework (EJWF)"
+description = "Build cross-platform desktop apps with Java, JavaScript, HTML, and CSS"
 
 java {
     toolchain {
@@ -69,24 +69,29 @@ tasks.named<Test>("test") {
 
 }
 
+var mainClassName = "tanin.jpsi.Main"
 application {
-    mainClass.set("tanin.ejwf.Main")
+    mainClass.set(mainClassName)
+}
+
+tasks.jar {
+    manifest.attributes["Main-Class"] = mainClassName
 }
 
 publishing {
     publications {
         create<MavenPublication>("maven") {
             groupId = "io.github.tanin47"
-            artifactId = "embeddable-java-web-framework"
+            artifactId = "jpsi"
             version = project.version.toString()
             artifact(tasks.shadowJar)
             artifact(tasks["sourcesJar"])
             artifact(tasks["javadocJar"])
 
             pom {
-                name.set("Embeddable Java Web Framework")
-                description.set("An example of Embeddable Java Web Framework that you can embed into your larger application.")
-                url.set("https://github.com/tanin47/embeddable-java-web-framework")
+                name.set("jpsi")
+                description.set("An example of Jpsi.")
+                url.set("https://github.com/tanin47/Jpsi")
                 inceptionYear.set("2025")
                 licenses {
                     license {
@@ -185,14 +190,10 @@ tasks.named("sourcesJar") {
 
 tasks.shadowJar {
     archiveClassifier.set("") // Remove the suffix -all.
-    relocate("com", "tanin.ejwf.com")
+    relocate("com", "tanin.jpsi.com")
     exclude("META-INF/MANIFEST.MF")
     exclude("local_dev_marker.ejwf")
 
-}
-
-tasks.jar {
-    manifest.attributes["Main-Class"] = "tanin.ejwf.Main"
 }
 
 // For CI validation.
