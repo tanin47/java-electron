@@ -8,7 +8,7 @@ plugins {
     jacoco
 }
 
-group = "tanin.jpsi"
+group = "tanin.javaelectron"
 version = "1.0.0"
 
 description = "Build cross-platform desktop apps with Java, JavaScript, HTML, and CSS"
@@ -65,7 +65,7 @@ tasks.named<Test>("test") {
 
 }
 
-var mainClassName = "tanin.jpsi.Main"
+var mainClassName = "tanin.javaelectron.Main"
 application {
     mainClass.set(mainClassName)
 }
@@ -148,32 +148,71 @@ tasks.register<Exec>("jdeps") {
 tasks.register<Exec>("jlink") {
     dependsOn("assemble", "copyDependencies", "copyJar")
     val jlinkBin = Paths.get(System.getProperty("java.home"), "bin", "jlink")
-    outputs.file("./build/jlink")
+
+    inputs.files(tasks.named("copyJar").get().outputs.files)
+    outputs.file(layout.buildDirectory.file("jlink"))
+    outputs.files.singleFile.deleteRecursively()
 
     commandLine(
         jlinkBin,
         "--ignore-signing-information",
-        "--no-header-files", "--no-man-pages", "--strip-debug",
-        "-p", tasks.named("copyJar").get().outputs.files.singleFile.absolutePath,
+        "--strip-native-commands", "--no-header-files", "--no-man-pages", "--strip-debug",
+        "-p", inputs.files.singleFile.absolutePath,
         "--add-modules", "java.base,java.desktop,java.logging,java.net.http,jcef,jdk.unsupported,org.bouncycastle.lts.pkix,org.bouncycastle.lts.prov,org.bouncycastle.lts.util,java.security.jgss,java.security.sasl,jdk.crypto.ec,jdk.crypto.cryptoki",
-        "--output", layout.buildDirectory.dir("jlink").get().asFile.absolutePath,
+        "--output", outputs.files.singleFile.absolutePath,
     )
 }
 
 tasks.register<Exec>("jpackage") {
     dependsOn("jlink")
-    val jreHome = "/Users/tanin/projects/jpsi/jdk/jbr_jcef-21.0.9-osx-aarch64-b895.147/Contents/Home"
-    val jpackageBin = Paths.get(System.getProperty("java.home"), "bin", "jpackage")
+    val javaHome = System.getProperty("java.home")
+    val jpackageBin = Paths.get(javaHome, "bin", "jpackage")
+
+    val appContent = Paths.get(javaHome).parent.resolve("Frameworks").toFile()
+    val runtimeImage = tasks.named("jlink").get().outputs.files.singleFile
+    val modulePath = tasks.named("copyJar").get().outputs.files.singleFile
+
+    inputs.files(appContent, runtimeImage, modulePath)
+
+    val outputDir = layout.buildDirectory.dir("jpackage")
+    val name = "JavaElectronExample"
+    val version = "1.0.0"
+    val dmgName = "$name-$version.dmg"
+
+    outputs.file(outputDir.get().asFile.resolve(dmgName))
+    outputDir.get().asFile.deleteRecursively()
 
     commandLine(
         jpackageBin,
-        "--app-content", Paths.get(jreHome).parent.resolve("Frameworks").toFile().absolutePath,
+        "--app-content", appContent.absolutePath,
+        "--name", name,
+        "--app-version", version,
         "--main-class", mainClassName,
-        "--module", "tanin.jpsi/tanin.jpsi.Main",
-        "--runtime-image", tasks.named("jlink").get().outputs.files.singleFile.absolutePath,
-        "--vendor", "tanin.jpsi",
-        "--module-path", tasks.named("copyJar").get().outputs.files.singleFile.absolutePath,
-        "--dest", layout.buildDirectory.dir("dist").get().asFile.absolutePath,
+        "--module", "tanin.javaelectron/tanin.javaelectron.Main",
+        "--runtime-image", runtimeImage.absolutePath,
+        "--vendor", "tanin.javaelectron",
+        "--module-path", modulePath.absolutePath,
+        "--dest", outputDir.get().asFile.absolutePath,
+        "--mac-package-identifier", "tanin.javaelectron.macos.app",
+        "--mac-package-name", "Java Electron",
+        "--mac-package-signing-prefix", "tanin.javaelectron.macos.",
+        "--mac-sign",
+        "--mac-signing-key-user-name", "Developer ID Application: Tanin Na Nakorn (S6482XAL5E)",
+        "--mac-entitlements", "entitlements.plist"
     )
+}
 
+
+tasks.register<Exec>("notarize") {
+    dependsOn("jpackage")
+
+    inputs.file(tasks.named("jpackage").get().outputs.files.singleFile)
+
+    commandLine(
+       "/usr/bin/xcrun",
+        "notarytool",
+        "submit",
+        "--wait", "-p", "personal",
+        inputs.files.singleFile.absolutePath,
+    )
 }

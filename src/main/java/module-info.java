@@ -1,4 +1,4 @@
-module tanin.jpsi {
+module tanin.javaelectron {
   // Java platform modules
   requires java.desktop;      // Swing/AWT for the Browser UI
   requires java.logging;      // java.util.logging used in Main
@@ -10,6 +10,6 @@ module tanin.jpsi {
   requires jcef;
 
   // Export our public APIs/packages
-  exports tanin.jpsi;
+  exports tanin.javaelectron;
   exports tanin.ejwf;
 }

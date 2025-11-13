@@ -1,1 +1,1 @@
-rootProject.name = "jpsi"
+rootProject.name = "javaelectron"

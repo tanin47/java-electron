@@ -1,4 +1,4 @@
-package tanin.jpsi;
+package tanin.javaelectron;
 
 import com.eclipsesource.json.Json;
 import com.renomad.minum.web.FullSystem;

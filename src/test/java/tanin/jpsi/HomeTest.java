@@ -1,4 +1,4 @@
-package tanin.jpsi;
+package tanin.javaelectron;
 
 import org.junit.jupiter.api.Test;
 

@@ -2,7 +2,7 @@
 // reserved. Use of this source code is governed by a BSD-style license that
 // can be found in the LICENSE file.
 
-package tanin.jpsi;
+package tanin.javaelectron;
 
 import com.jetbrains.cef.JCefAppConfig;
 import org.cef.CefApp;
