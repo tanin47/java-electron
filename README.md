@@ -40,7 +40,7 @@ Architecture
 
 Java Electron uses [webview](https://github.com/webview/webview) to render the UI. The communication between the UI and Java goes through HTTP. Therefore, Java Electron consists of 2 main components: 
 
-1. The web server (powered by [Minum](https://github.com/byronka/minum))
+1. The web server (powered by [Minum](https://github.com/byronka/minum)). Minum is chosen because it has no external dependencies and extremely small (350KB). It also powers Backdoor](https://github.com/tanin47/backdoor), which is the Java-based web app that I'm converting to a Desktop app. You can swap Minum with your fav web server framework!
 2. The web view (powered by [webview](https://github.com/webview/webview)) that points to the web server
 
 The web server implements 2 security mechanisms to prevent MITM:
