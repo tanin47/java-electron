@@ -11,6 +11,8 @@ import com.renomad.minum.utils.FileUtils;
 import com.renomad.minum.utils.ThrowingRunnable;
 import com.renomad.minum.utils.TimeUtils;
 
+import java.io.File;
+import java.nio.file.Path;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.concurrent.CancellationException;
@@ -71,10 +73,7 @@ public final class FullSystem {
         var executorService = Executors.newVirtualThreadPerTaskExecutor();
         var logger = new Logger(constants, executorService, "primary logger");
 
-        var context = new Context(executorService, constants);
-        context.setLogger(logger);
-
-        return context;
+        return new Context(executorService, constants, logger);
     }
 
     /**
@@ -115,20 +114,16 @@ public final class FullSystem {
      */
     public FullSystem start() {
         // create a file in our current working directory to indicate we are running
-        createSystemRunningMarker();
+        if (constants.enableSystemRunningMarker) createSystemRunningMarker();
 
         // set up an action to take place if the user shuts us down
         addShutdownHook();
 
-        // Add useful startup info to the logs
-        String serverComment = "at http://" + constants.hostName + ":" + constants.serverPort + " and https://" + constants.hostName + ":" + constants.secureServerPort;
-        logger.logDebug(() -> " *** Minum is starting "+serverComment+" ***");
-
         // instantiate our security code
         if (constants.isTheBrigEnabled) {
-          theBrig = new TheBrig(context).initialize();
+            theBrig = new TheBrig(context).initialize();
         } else {
-          theBrig = null;
+            theBrig = null;
         }
 
         // the web framework handles the HTTP communications
@@ -161,14 +156,15 @@ public final class FullSystem {
 
     /**
      * this saves a file to the home directory, SYSTEM_RUNNING,
-     * that will indicate the system is active
+     * that will indicate the system is active.  It can be disabled
+     * by configuring ENABLE_SYSTEM_RUNNING_MARKER to false.
      */
     private void createSystemRunningMarker() {
-//        fileUtils.writeString(Path.of("SYSTEM_RUNNING"), "This file serves as a marker to indicate the system is running.\n");
-//        new File("SYSTEM_RUNNING").deleteOnExit();
+        fileUtils.writeString(Path.of("SYSTEM_RUNNING"), "This file serves as a marker to indicate the system is running.\n");
+        new File("SYSTEM_RUNNING").deleteOnExit();
     }
 
-    IServer getServer() {
+    public IServer getServer() {
         return server;
     }
 
@@ -208,10 +204,17 @@ public final class FullSystem {
     static void closeCore(ILogger logger, Context context, IServer server, IServer sslServer, String fullSystemName) {
         try {
             logger.logDebug(() -> "Received shutdown command");
-            logger.logDebug(() -> " Stopping the server: " + server);
-            server.close();
-            logger.logDebug(() -> " Stopping the SSL server: " + server);
-            sslServer.close();
+
+            if (server != null) {
+                logger.logDebug(() -> " Stopping the server: " + server);
+                server.close();
+            }
+
+            if (sslServer != null) {
+                logger.logDebug(() -> " Stopping the SSL server: " + server);
+                sslServer.close();
+            }
+
             logger.logDebug(() -> "Killing all the action queues: " + context.getActionQueueState().aqQueueAsString());
             new ActionQueueKiller(context).killAllQueues();
             logger.logDebug(() -> String.format(
@@ -259,8 +262,8 @@ public final class FullSystem {
 
     static void blockCore(IServer server, IServer sslServer) {
         try {
-            server.getCentralLoopFuture().get();
-            sslServer.getCentralLoopFuture().get();
+            if (server != null)  server.getCentralLoopFuture().get();
+            if (sslServer != null) sslServer.getCentralLoopFuture().get();
         } catch (InterruptedException | ExecutionException | CancellationException ex) {
             Thread.currentThread().interrupt();
             throw new WebServerException(ex);

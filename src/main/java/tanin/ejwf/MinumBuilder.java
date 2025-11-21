@@ -58,16 +58,22 @@ public class MinumBuilder {
     }
 
     var props = new Properties();
-    props.setProperty("SERVER_PORT", "0");
+    props.setProperty("SERVER_PORT", "-1");
     props.setProperty("SSL_SERVER_PORT", "0");
     props.setProperty("LOG_LEVELS", "ASYNC_ERROR,AUDIT");
     props.setProperty("IS_THE_BRIG_ENABLED", "false");
+    props.setProperty("ENABLE_SYSTEM_RUNNING_MARKER", "false");
 
     props.setProperty("KEYSTORE_PATH", keyStorePath);
     props.setProperty("KEYSTORE_PASSWORD", keyStorePassword);
 
-    var context = new Context(Executors.newVirtualThreadPerTaskExecutor(), new Constants(props));
-    context.setLogger(new Logger(context.getConstants(), context.getExecutorService(), "primary logger"));
+    var constants = new Constants(props);
+    var executor = Executors.newVirtualThreadPerTaskExecutor();
+    var context = new Context(
+      executor,
+      constants,
+      new Logger(constants, executor, "primary logger")
+    );
     var minum = new FullSystem(context).start();
     var wf = minum.getWebFramework();
 
@@ -186,6 +192,8 @@ public class MinumBuilder {
       logger.info("Received SIGINT signal. Shutting down...");
       minum.shutdown();
     });
+
+    logger.info("Minum is running at the port: " + minum.getSslServer().getPort());
 
     return minum;
   }
