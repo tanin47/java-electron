@@ -48,7 +48,7 @@ public class Main {
 
     var sslPort = main.minum.getSslServer().getPort();
 
-    var browser = new Browser("https://localhost:" + sslPort + "/landing?authKey=" + authKey, cert);
+    var browser = new Browser("https://localhost:" + sslPort + "?authKey=" + authKey, cert);
     browser.run();
 
     logger.info("Blocking...");
@@ -99,7 +99,7 @@ public class Main {
 
     wf.registerPath(
       GET,
-      "landing",
+      "",
       r -> {
         String content = new String(Main.class.getResourceAsStream("/html/index.html").readAllBytes());
         return Response.htmlOk(

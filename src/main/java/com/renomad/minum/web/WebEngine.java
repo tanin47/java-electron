@@ -6,10 +6,8 @@ import com.renomad.minum.state.Context;
 
 import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLContext;
-import java.io.IOException;
 import java.io.InputStream;
 import java.net.ServerSocket;
-import java.net.Socket;
 import java.net.URL;
 import java.nio.file.Path;
 import java.security.KeyStore;
@@ -50,18 +48,21 @@ final class WebEngine {
    */
   IServer startServer() {
     int port = constants.serverPort;
-      ServerSocket ss;
-      try {
-          ss = new ServerSocket(port);
-      } catch (Exception e) {
-          throw new WebServerException("Failed to create serversocket on port " + port, e);
-      }
-      logger.logDebug(() -> String.format("Just created a new ServerSocket: %s", ss));
+    if (port == -1) {
+      return null;
+    }
+    ServerSocket ss;
+    try {
+        ss = new ServerSocket(port);
+    } catch (Exception e) {
+        throw new WebServerException("Failed to create serversocket on port " + port, e);
+    }
+    logger.logDebug(() -> String.format("Just created a new ServerSocket: %s", ss));
     IServer server = new Server(ss, context, "http server", webFramework, executorService, PLAIN_TEXT_HTTP);
     logger.logDebug(() -> String.format("Just created a new Server: %s", server));
     server.start();
     String hostname = constants.hostName;
-    logger.logDebug(() -> String.format("%s started at http://%s:%s", server, hostname, port));
+    logger.logDebug(() -> String.format("%s started at http://%s:%s", server, hostname, server.getPort()));
     return server;
   }
 
@@ -69,6 +70,10 @@ final class WebEngine {
    * Start an encrypted server, using TLS 1.3
    */
   IServer startSslServer() {
+    int port = constants.secureServerPort;
+    if (port == -1) {
+        return null;
+    }
 
     /*
      * If we are provided details for a keystore (its location and password), use it
@@ -76,14 +81,14 @@ final class WebEngine {
     final var useExternalKeystore = isProvidedKeystoreProperties(constants.keystorePath, constants.keystorePassword, logger);
     KeyStoreResult keystoreResult = getKeyStoreResult(useExternalKeystore, constants.keystorePath, constants.keystorePassword, logger);
 
-    int port = constants.secureServerPort;
+
     ServerSocket ss = createSslSocketWithSpecificKeystore(port, keystoreResult.keystoreUrl(), keystoreResult.keystorePassword());
     logger.logDebug(() -> String.format("Just created a new ServerSocket: %s", ss));
     IServer server = new Server(ss, context, "https server", webFramework, executorService, ENCRYPTED_HTTP);
     logger.logDebug(() -> String.format("Just created a new SSL Server: %s", server));
     server.start();
     String hostname = constants.hostName;
-    logger.logDebug(() -> String.format("%s started at https://%s:%s", server, hostname, port));
+    logger.logDebug(() -> String.format("%s started at https://%s:%s", server, hostname, server.getPort()));
     return server;
   }
 
@@ -153,7 +158,6 @@ final class WebEngine {
    * Create an SSL Socket using a specified keystore
    */
   ServerSocket createSslSocketWithSpecificKeystore(int sslPort, URL keystoreUrl, String keystorePassword) {
-    logger.logDebug(() -> "KeyStore: " + keystoreUrl.toString());
     try (InputStream keystoreInputStream = keystoreUrl.openStream()) {
       final var keyStore = KeyStore.getInstance(KeyStore.getDefaultType());
       char[] passwordCharArray = keystorePassword.toCharArray();
@@ -174,14 +178,6 @@ final class WebEngine {
       logger.logDebug(() -> extraMessage);
       throw new WebServerException(extraMessage, ex);
     }
-  }
-
-  /**
-   * Create a client {@link ISocketWrapper} connected to the running host server
-   */
-  ISocketWrapper startClient(Socket socket) throws IOException {
-    logger.logDebug(() -> String.format("Just created new client socket: %s", socket));
-    return new SocketWrapper(socket, null, logger, constants.socketTimeoutMillis, constants.hostName);
   }
 
 }
