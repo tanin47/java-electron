@@ -1,27 +1,11 @@
 package tanin.javaelectron;
 
-import com.eclipsesource.json.Json;
-import com.renomad.minum.web.FullSystem;
-import com.renomad.minum.web.Response;
-import com.renomad.minum.web.StatusLine;
 import tanin.ejwf.MinumBuilder;
 import tanin.ejwf.SelfSignedCertificate;
 
 import java.io.IOException;
-import java.security.KeyManagementException;
-import java.security.KeyStoreException;
-import java.security.NoSuchAlgorithmException;
-import java.security.cert.CertificateException;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.LogManager;
 import java.util.logging.Logger;
-
-import static com.renomad.minum.web.RequestLine.Method.GET;
-import static com.renomad.minum.web.RequestLine.Method.POST;
 
 public class Main {
   private static final Logger logger = Logger.getLogger(Main.class.getName());
