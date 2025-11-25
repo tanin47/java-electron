@@ -3,13 +3,29 @@ Java Electron
 
 It's like Electron but for Java. Now you can build cross-platform desktop apps with Java, JavaScript, HTML, and CSS.
 
-The example app runs in MacOS's App Sandbox, can be notarized successfully, and is ~50MB in its final size. The example app currently works with Mac 
-ARM. Other platforms are coming soon as I work toward launching the desktop version of [Backdoor](https://github.com/tanin47/backdoor) (Self-hostable single-jar database querying and editing tool for you and your team) on different platforms.
+The example app runs in MacOS's App Sandbox, can be notarized successfully, and is ~50MB in its final size. The example app currently works with Mac
+(Apple Silicon). It also publishes to TestFlight and Apple App Store successfully.
+
+You can download the app here: https://github.com/tanin47/java-electron/releases
+
+Other platforms are coming soon as I work toward launching the desktop version of [Backdoor](https://github.com/tanin47/backdoor) (Self-hostable single-jar database querying and editing tool for you and your team) on different platforms.
 
 ![Demo Application](demo.png)
 
 
 If you have questions or are stuck, please don't hesitate to open an issue. I'm always happy to help!
+
+Supported platforms
+--------------------
+
+| Platform              | Status         |
+|-----------------------|----------------|
+| MacOS (Apple Silicon) | ✅ Supported   |
+| Windows               | 🟡 In Progress |
+| Linux                 | 🟡 In Progress |
+| MacOS (Intel)         | 🔜 Not Sure    |
+
+
 
 How to run
 -----------
@@ -17,8 +33,8 @@ How to run
 1. Run `npm run hmr` in one terminal and run `./gradlew run` in another terminal. This supports hot-reloading your JS code.
 
 
-How to package 
----------------
+How to package a DMG
+---------------------
 
 Run `./gradlew jpackage` to build the DMG installer. Then, you can extract the DMG at `./build/jpackage`.
 
@@ -28,11 +44,19 @@ How to notarize
 
 You will need setup your bundle ID, certificate, and provisionprofile:
 
-1. Open `./build.gradle.kts`. 
-  - Set `macDeveloperApplicationCertName`, `codesignPackagePrefix`, and bundle IDs correctly. 
-  - Go to the `notarize` task and replace `-p` with your notarytool profile that you can set up with `xcrun notarytool store-credentials`.
-2. Replace `./src/main/resources/embedded.provisionprofile` with your provision profile, which you can get from https://developer.apple.com/account/resources/profiles/list
+1. Open `./build.gradle.kts` and modify the variables accordingly.
+2. Replace `./src/mac-resources/provisionprofile/notarization/*.provisionprofile` with your provision profile, which you can get from https://developer.apple.com/account/resources/profiles/list
 3. Run `./gradlew staple` to build, notarize, and staple the DMG.
+
+
+How to publish to TestFlight and App Store
+--------------------------------------------
+
+You will need setup your bundle ID, certificate, and provisionprofile:
+
+1. Open `./build.gradle.kts` and modify the variables accordingly.
+2. Replace `./src/mac-resources/provisionprofile/app_store/*.provisionprofile` with your provision profile, which you can get from https://developer.apple.com/account/resources/profiles/list
+3. Run `./gradlew uploadPkgToAppStore` to upload the build to both TestFlight and App Store.
 
 
 Architecture
@@ -63,8 +87,3 @@ How to prepare a new WebView library
 Java Electron uses a custom webview library ([repo](https://github.com/tanin47/webview)) that supports a self-signed certificate for localhost.
 
 The webview library for Mac ARM has been built and put at `./src/main/resources/webview/libwebview.dylib`. There is no need to rebuild the library.
-
-To dos
--------
-
-- [ ] Push Minum changes upstream and remove Minum
