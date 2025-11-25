@@ -331,24 +331,18 @@ private fun codesignDir(dir: File, useRuntimeEntitlement: Boolean = false) {
         }
 }
 
+private fun removeQuarantine(file: File) {
+    try {
+        runCmd("/usr/bin/xattr", "-d", "com.apple.quarantine", file.absolutePath)
+    } catch (_: IllegalStateException) {}
+}
+
 tasks.register("macosCodesignProvisionprofile") {
     doLast {
-        try {
-            runCmd(
-                "/usr/bin/xattr",
-                "-d", "com.apple.quarantine",
-                provisionprofileDir.file("embedded.provisionprofile").asFile.absolutePath,
-            )
-        } catch (_: IllegalStateException) {}
+        removeQuarantine(provisionprofileDir.file("embedded.provisionprofile").asFile)
         codesign(provisionprofileDir.file("embedded.provisionprofile").asFile)
 
-        try {
-            runCmd(
-                "/usr/bin/xattr",
-                "-d", "com.apple.quarantine",
-                provisionprofileDir.file("runtime.provisionprofile").asFile.absolutePath,
-            )
-        } catch (_: IllegalStateException) {}
+        removeQuarantine(provisionprofileDir.file("runtime.provisionprofile").asFile)
         codesign(provisionprofileDir.file("runtime.provisionprofile").asFile, useRuntimeEntitlement = true)
     }
 }
