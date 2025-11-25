@@ -94,7 +94,7 @@ jobs:
           fi
       - name: Install Node modules
         run: npm install
-      - name: Build a publishable JAR
+      - name: Build & upload to TestFlight
         run: ./gradlew clean uploadPkgToAppStore
         env:
           APPLE_EMAIL: ${{ secrets.APPLE_EMAIL }}
