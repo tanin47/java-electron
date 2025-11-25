@@ -1,0 +1,38 @@
+<?xml version="1.0" ?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "https://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>CFBundleShortVersionString</key>
+    <string>{{VERSION}}</string>
+    <key>CFBundleVersion</key>
+    <string>{{INTERNAL_VERSION}}</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>12.0</string>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>English</string>
+    <key>CFBundleAllowMixedLocalizations</key>
+    <string>true</string>
+    <key>CFBundleExecutable</key>
+    <string>{{APP_NAME}}</string>
+    <key>CFBundleIconFile</key>
+    <string>{{APP_NAME}}.icns</string>
+    <key>CFBundleIdentifier</key>
+    <string>{{PACKAGE_IDENTIFIER}}</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>{{APP_NAME}}</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.utilities</string>
+    <key>NSHumanReadableCopyright</key>
+    <string>Copyright (C) 2025</string>
+    <key>NSSupportsAutomaticGraphicsSwitching</key>
+    <string>true</string>
+    <key>NSHighResolutionCapable</key>
+    <string>true</string>
+    <key>ITSAppUsesNonExemptEncryption</key>
+    <string>false</string>
+  </dict>
+</plist>

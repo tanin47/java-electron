@@ -11,5 +11,6 @@ SYSTEM_RUNNING
 .gradle
 build
 jdk
-hr_err_*.log
+hs_err_*.log
 libwebview.dylib
+/secret

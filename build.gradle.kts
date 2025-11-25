@@ -1,8 +1,9 @@
 import org.gradle.api.tasks.testing.logging.TestExceptionFormat
-import java.io.ByteArrayOutputStream
-import java.lang.IllegalStateException
+import java.nio.file.Files
 import java.nio.file.Paths
+import kotlin.io.path.absolutePathString
 import kotlin.io.path.createTempDirectory
+import kotlin.io.path.isExecutable
 
 plugins {
     `java-library`
@@ -10,13 +11,53 @@ plugins {
     jacoco
 }
 
+
+val isNotarizing = System.getenv("NOTARIZE") != null || gradle.startParameter.taskNames.find { s ->
+    s.lowercase().contains("notarize") || s.lowercase().contains("jpackage") || s.lowercase().contains("staple")
+} != null
+
+val provisionprofileDir = layout.projectDirectory
+    .dir("mac-resources")
+    .dir("provisionprofile")
+    .dir(
+        if (isNotarizing) {
+            "notarization"
+        } else {
+            "app_store"
+        }
+    )
+
 // TODO: Replace the below with the name of your 'Developer ID Application' cert which you can get from https://developer.apple.com/account/resources/certificates/list
-val macDeveloperApplicationCertName = "Developer ID Application: Tanin Na Nakorn (S6482XAL5E)"
-// TODO: Replace the below with the prefix of your bundle ID which you can get from https://developer.apple.com/account/resources/identifiers/list
-val codesignPackagePrefix = "tanin.javaelectron.macos."
+val macDeveloperApplicationCertName = if (isNotarizing) {
+    "Developer ID Application: Tanin Na Nakorn (S6482XAL5E)"
+} else {
+    "3rd Party Mac Developer Application: Tanin Na Nakorn (S6482XAL5E)"
+}
+val appleEmail = if (System.getenv("APPLE_EMAIL") != null) {
+    System.getenv("APPLE_EMAIL")
+} else {
+    try {
+        project.file("./secret/APPLE_EMAIL").readText().trim()
+    } catch (e: Exception) {
+        "The-apple-email-is-not-specified"
+    }
+}
+val appleAppSpecificPassword = if (System.getenv("APPLE_APP_SPECIFIC_PASSWORD") != null) {
+    System.getenv("APPLE_APP_SPECIFIC_PASSWORD")
+} else {
+    try {
+        project.file("./secret/APPLE_APP_SPECIFIC_PASSWORD").readText().trim()
+    } catch (e: Exception) {
+        "The-apple-app-specific-password-is-not-specified"
+    }
+}
+val appleTeamId = "S6482XAL5E"
 
 group = "tanin.javaelectron"
-version = "1.0.0"
+val appName = "JavaElectron"
+val packageIdentifier = "tanin.javaelectron.macos.app"
+version = "1.0"
+val internalVersion = "1.0.1"
 
 description = "Build cross-platform desktop apps with Java, JavaScript, HTML, and CSS"
 
@@ -39,7 +80,7 @@ tasks.register<Exec>("compileSwift") {
     description = "Compile Swift code and output the dylib to the resource directory."
 
     val inputFile = layout.projectDirectory.file("src/main/swift/MacOsApi.swift").asFile
-    val outputFile = layout.projectDirectory.file("src/main/resources/libMacOsApi.dylib").asFile
+    val outputFile = layout.projectDirectory.file("src/main/resources/native/libMacOsApi.dylib").asFile
 
     println("Compiling Swift code to $outputFile")
 
@@ -76,11 +117,10 @@ tasks.jacocoTestReport {
 
 repositories {
     mavenCentral()
-    maven { url = uri("https://jitpack.io") }
-    maven { url = uri("https://repo.casterlabs.co/maven") }
 }
 
 dependencies {
+    implementation("com.renomad:minum:8.3.1")
     implementation("net.java.dev.jna:jna:5.14.0")
     implementation("com.eclipsesource.minimal-json:minimal-json:0.9.5")
 
@@ -122,9 +162,6 @@ tasks.jar {
 }
 
 tasks.register<Exec>("compileTailwind") {
-    inputs.files(fileTree("frontend"))
-    outputs.dir("build/compiled-frontend-resources")
-
     environment("NODE_ENV", "production")
 
     commandLine(
@@ -138,9 +175,6 @@ tasks.register<Exec>("compileTailwind") {
 }
 
 tasks.register<Exec>("compileSvelte") {
-    inputs.files(fileTree("frontend"))
-    outputs.dir("build/compiled-frontend-resources")
-
     environment("NODE_ENV", "production")
     environment("ENABLE_SVELTE_CHECK", "true")
 
@@ -166,9 +200,9 @@ tasks.named("sourcesJar") {
 }
 
 // For CI validation.
-tasks.register("printVersion") {
+tasks.register("printInternalVersion") {
     doLast {
-        print("$version")
+        print(internalVersion)
     }
 }
 
@@ -180,41 +214,78 @@ tasks.register("copyJar", Copy::class) {
     from(tasks.jar).into(layout.buildDirectory.dir("jmods"))
 }
 
-private fun runCmd(vararg args: String) {
+private fun runCmd(vararg args: String): String {
     println("Executing command: ${args.joinToString(" ")}")
 
-    val retVal = ProcessBuilder(*args)
+    val output = StringBuilder()
+    val process = ProcessBuilder(*args)
+        .directory(layout.projectDirectory.asFile)
         .start()
-        .waitFor()
+
+    // Print stdout
+    process.inputStream.bufferedReader().use { reader ->
+        reader.lines().forEach {
+            println("stdout: $it")
+            output.appendLine(it)
+        }
+    }
+
+    // Print stderr
+    process.errorStream.bufferedReader().use { reader ->
+        reader.lines().forEach { println("stderr: $it") }
+    }
+
+    val retVal = process.waitFor()
 
     if (retVal != 0) {
         throw IllegalStateException("Command execution failed with return value: $retVal")
     }
+
+    return output.toString()
 }
 
-private fun signInJar(jarFile: File) {
+private fun codesign(file: File, useRuntimeEntitlement: Boolean = false) {
+    runCmd(
+        "codesign",
+        "-vvvv",
+        "--options",
+        "runtime",
+        "--entitlements",
+        if (useRuntimeEntitlement) {
+            "runtime-entitlements.plist"
+        } else {
+            "entitlements.plist"
+        },
+        "--timestamp",
+        "--force",
+        "--sign",
+        macDeveloperApplicationCertName,
+        file.absolutePath,
+    )
+}
+
+private fun isCodesignable(file: File): Boolean {
+    val excludedExtensions = setOf("so", "a", "xml")
+    return file.extension == "dylib" ||
+            file.extension == "jnilib" ||
+            (!excludedExtensions.contains(file.extension) && file.toPath().isExecutable())
+}
+
+private fun codesignInJar(jarFile: File, nativeLibPath: File) {
     val tmpDir = createTempDirectory("MacosCodesignLibsInJarsTask").toFile()
     runCmd("unzip", "-q", jarFile.absolutePath, "-d", tmpDir.absolutePath)
 
     tmpDir.walk()
-        .filter { it.isFile && (it.extension == "dylib" || it.extension == "jnilib") }
+        .filter { it.isFile && isCodesignable(it) }
         .forEach { libFile ->
             println("")
-            runCmd(
-                "codesign",
-                "-vvvv",
-                "--options",
-                "runtime",
-                "--entitlements",
-                "entitlements.plist",
-                "--timestamp",
-                "--force",
-                "--prefix",
-                codesignPackagePrefix,
-                "--sign",
-                macDeveloperApplicationCertName,
-                libFile.absolutePath
-            )
+            codesign(libFile)
+
+            if (libFile.absolutePath.contains("darwin-x86-64")) {
+                // Skip the jna's x86-64 lib
+            } else {
+                runCmd("cp", libFile.absolutePath, nativeLibPath.absolutePath)
+            }
 
             runCmd(
                 "jar",
@@ -232,35 +303,58 @@ tasks.register("macosCodesignLibsInJars") {
     dependsOn("copyDependencies", "copyJar")
     inputs.files(tasks.named("copyJar").get().outputs.files)
 
+    val resourceNativePath = layout.buildDirectory.file("resources-native").get().asFile
+    val nativeLibPath = layout.buildDirectory.file("resources-native").get().asFile.resolve("app/resources")
+
     doLast {
+        resourceNativePath.deleteRecursively()
+        nativeLibPath.mkdirs()
         inputs.files.forEach { file ->
             println("Process: ${file.absolutePath}")
 
             if (file.isDirectory) {
                 file.walk()
                     .filter { it.isFile && it.extension == "jar" }
-                    .forEach { signInJar(it) }
+                    .forEach { codesignInJar(it, nativeLibPath) }
             } else if (file.extension == "jar") {
-                signInJar(file)
+                codesignInJar(file, nativeLibPath)
             }
         }
     }
 }
 
-tasks.register<Exec>("jdeps") {
-    dependsOn("assemble")
-    val jdepsBin = Paths.get(System.getProperty("java.home"), "bin", "jdeps")
-    commandLine(
-        jdepsBin,
-        "--module-path", tasks.named<JavaCompile>("compileJava").get().classpath.asPath,
-        "--multi-release", "base",
-        "--print-module-deps",
-        tasks.jar.get().outputs.files.asPath,
-    )
+private fun codesignDir(dir: File, useRuntimeEntitlement: Boolean = false) {
+    dir.walk()
+        .filter { it.isFile && isCodesignable(it) }
+        .forEach { libFile ->
+            codesign(libFile, useRuntimeEntitlement)
+        }
+}
+
+tasks.register("macosCodesignProvisionprofile") {
+    doLast {
+        try {
+            runCmd(
+                "/usr/bin/xattr",
+                "-d", "com.apple.quarantine",
+                provisionprofileDir.file("embedded.provisionprofile").asFile.absolutePath,
+            )
+        } catch (_: IllegalStateException) {}
+        codesign(provisionprofileDir.file("embedded.provisionprofile").asFile)
+
+        try {
+            runCmd(
+                "/usr/bin/xattr",
+                "-d", "com.apple.quarantine",
+                provisionprofileDir.file("runtime.provisionprofile").asFile.absolutePath,
+            )
+        } catch (_: IllegalStateException) {}
+        codesign(provisionprofileDir.file("runtime.provisionprofile").asFile, useRuntimeEntitlement = true)
+    }
 }
 
 tasks.register<Exec>("jlink") {
-    dependsOn("assemble", "macosCodesignLibsInJars")
+    dependsOn("assemble", "macosCodesignLibsInJars", "macosCodesignProvisionprofile")
     val jlinkBin = Paths.get(System.getProperty("java.home"), "bin", "jlink")
 
     inputs.files(tasks.named("copyJar").get().outputs.files)
@@ -278,8 +372,21 @@ tasks.register<Exec>("jlink") {
     )
 }
 
-tasks.register<Exec>("jpackage") {
-    dependsOn("jlink")
+tasks.register("prepareInfoPlist") {
+    doLast {
+        val template = layout.projectDirectory.file("mac-resources/Info.plist.template").asFile.readText()
+        val content = template
+            .replace("{{VERSION}}", version.toString())
+            .replace("{{INTERNAL_VERSION}}", internalVersion)
+            .replace("{{PACKAGE_IDENTIFIER}}", packageIdentifier)
+            .replace("{{APP_NAME}}", appName)
+
+        layout.projectDirectory.file("mac-resources/Info.plist").asFile.writeText(content)
+    }
+}
+
+tasks.register("bareJpackage") {
+    dependsOn("jlink", "prepareInfoPlist")
     val javaHome = System.getProperty("java.home")
     val jpackageBin = Paths.get(javaHome, "bin", "jpackage")
 
@@ -288,86 +395,103 @@ tasks.register<Exec>("jpackage") {
 
     inputs.files(runtimeImage, modulePath)
 
-    val outputDir = layout.buildDirectory.dir("jpackage")
-    val outputFile = outputDir.get().asFile.resolve("${project.name}-$version.dmg")
+    val outputDir = layout.buildDirectory.dir("bare-jpackage")
+    val outputFile = outputDir.get().asFile.resolve("${appName}-$version.dmg")
 
     outputs.file(outputFile)
     outputDir.get().asFile.deleteRecursively()
 
-    commandLine(
-        jpackageBin,
-        "--name", project.name,
-        "--app-version", version,
-        "--main-jar", modulePath.resolve("${project.name}-$version.jar"),
-        "--main-class", mainClassName,
-        "--runtime-image", runtimeImage.absolutePath,
-        "--vendor", "tanin.javaelectron",
-        "--input", modulePath.absolutePath,
-        "--dest", outputDir.get().asFile.absolutePath,
-        "--mac-package-identifier", "tanin.javaelectron.macos.app",
-        "--mac-package-name", "Java Electron",
-        "--mac-package-signing-prefix", codesignPackagePrefix,
-        "--mac-sign",
-        "--mac-signing-key-user-name", macDeveloperApplicationCertName,
-        "--mac-entitlements", "entitlements.plist",
-        // -XstartOnFirstThread requires for MacOs
-        "--java-options", "-XstartOnFirstThread --add-exports java.base/sun.security.x509=ALL-UNNAMED --add-exports java.base/sun.security.tools.keytool=ALL-UNNAMED"
-    )
-}
-
-
-interface InjectedExecOps {
-    @get:Inject val execOps: ExecOperations
-}
-
-tasks.register("jpackageAndExtractApp") {
-    dependsOn("jpackage")
-
-    inputs.file(tasks.named("jpackage").get().outputs.files.singleFile)
-    outputs.dir(layout.buildDirectory.dir("jpackage-extracted-app"))
-    outputs.files.singleFile.deleteRecursively()
-
-    val injected = project.objects.newInstance<InjectedExecOps>()
     doLast {
-        var volumeName: String? = null
-        val output = ByteArrayOutputStream()
-        injected.execOps.exec {
-            commandLine("/usr/bin/hdiutil", "attach", "-readonly", inputs.files.singleFile.absolutePath)
-            standardOutput = output
-        }
+        runCmd(
+            jpackageBin.absolutePathString(),
+            "--name", appName,
+            "--app-version", version.toString(),
+            "--main-jar", modulePath.resolve("${project.name}-$version.jar").absolutePath,
+            "--main-class", mainClassName,
+            "--runtime-image", runtimeImage.absolutePath,
+            "--input", modulePath.absolutePath,
+            "--dest", outputDir.get().asFile.absolutePath,
+            "--mac-package-identifier", packageIdentifier,
+            "--mac-package-name", appName,
+            "--mac-sign",
+            "--mac-app-store",
+            "--mac-signing-key-user-name", macDeveloperApplicationCertName,
+            "--mac-entitlements", "entitlements.plist",
+            "--resource-dir", layout.projectDirectory.dir("mac-resources").asFile.absolutePath,
+            "--app-content", provisionprofileDir.file("embedded.provisionprofile").asFile.absolutePath,
+            "--app-content", layout.buildDirectory.file("resources-native").get().asFile.resolve("app").absolutePath,
+            // -XstartOnFirstThread requires for MacOs
+            "--java-options",
+            "-XstartOnFirstThread --add-exports java.base/sun.security.x509=ALL-UNNAMED --add-exports java.base/sun.security.tools.keytool=ALL-UNNAMED"
+        )
+    }
+}
 
-        volumeName = output.toString().lines()
+tasks.register("jpackage") {
+    dependsOn("bareJpackage")
+
+    inputs.file(tasks.named("bareJpackage").get().outputs.files.singleFile)
+
+    val outputDir = layout.buildDirectory.dir("jpackage").get().asFile
+    val outputAppFile = outputDir.resolve("$appName.app")
+    val outputDmgFile = outputDir.resolve(inputs.files.singleFile.name)
+
+    outputs.dir(outputAppFile)
+    outputs.file(outputDmgFile)
+
+    doLast {
+        outputDir.deleteRecursively()
+        outputDir.mkdirs()
+        var volumeName: String? = null
+        val output = runCmd("/usr/bin/hdiutil", "attach", "-readonly", inputs.files.singleFile.absolutePath)
+
+        volumeName = output.lines()
             .firstNotNullOfOrNull { line -> Regex("/Volumes/([^ ]*)").find(line)?.groupValues?.get(1) }
+
+        println("Found /Volumes/$volumeName/")
 
         if (volumeName == null) {
             throw Exception("Unable to extract the volumn name from the hdiutil command. Output: $output")
         }
-        injected.execOps.exec {
-            commandLine("cp", "-R", "/Volumes/$volumeName/.", outputs.files.singleFile.absolutePath)
-        }
 
-        injected.execOps.exec {
-            commandLine("/usr/bin/hdiutil", "detach", "/Volumes/$volumeName")
-        }
+        runCmd("cp", "-R", "/Volumes/$volumeName/.", outputAppFile.parentFile.absolutePath)
+        runCmd("/usr/bin/hdiutil", "detach", "/Volumes/$volumeName")
+        runCmd("/usr/bin/open", outputAppFile.parentFile.absolutePath)
 
-        injected.execOps.exec {
-            commandLine("/usr/bin/open", outputs.files.singleFile.absolutePath)
-        }
+        // Prepare runtime
+        Files.copy(
+            provisionprofileDir.file("runtime.provisionprofile").asFile.toPath(),
+            outputAppFile.resolve("Contents/runtime/Contents/embedded.provisionprofile").toPath()
+        )
+
+        codesignDir(outputAppFile.resolve("Contents/runtime"), useRuntimeEntitlement = true)
+
+        codesign(outputAppFile.resolve("Contents/runtime"), useRuntimeEntitlement = true)
+        codesign(outputAppFile)
+
+        runCmd(
+            "/usr/bin/hdiutil",
+            "create",
+            "-ov",
+            "-srcFolder", outputDir.absolutePath,
+            outputDmgFile.absolutePath,
+        )
     }
 }
 
 tasks.register<Exec>("notarize") {
     dependsOn("jpackage")
 
-    inputs.file(tasks.named("jpackage").get().outputs.files.singleFile)
+    inputs.file(tasks.named("jpackage").get().outputs.files.filter { it.extension == "dmg" }.first())
 
     commandLine(
-       "/usr/bin/xcrun",
+        "/usr/bin/xcrun",
         "notarytool",
         "submit",
         "--wait",
-        // TODO: Replace -p value with your notarytool profile's name. You can set it up using `xcrun notarytool store-credentials`.
-        "-p", "personal",
+        "--apple-id", appleEmail,
+        "--password", appleAppSpecificPassword,
+        "--team-id", appleTeamId,
         inputs.files.singleFile.absolutePath,
     )
 }
@@ -376,7 +500,7 @@ tasks.register<Exec>("notarize") {
 tasks.register<Exec>("staple") {
     dependsOn("notarize")
 
-    inputs.file(tasks.named("jpackage").get().outputs.files.singleFile)
+    inputs.file(tasks.named("jpackage").get().outputs.files.filter { it.extension == "dmg" }.first())
 
     commandLine(
         "/usr/bin/xcrun",
@@ -384,5 +508,48 @@ tasks.register<Exec>("staple") {
         "staple",
         "-v",
         inputs.files.singleFile.absolutePath,
+    )
+}
+
+tasks.register<Exec>("convertToPkg") {
+    dependsOn("jpackage")
+    val app = tasks.named("jpackage").get().outputs.files.filter { it.extension == "app" }.first()
+    inputs.dir(app)
+    outputs.file(layout.buildDirectory.dir("pkg").get().file("Backdoor.pkg"))
+    commandLine(
+        "/usr/bin/productbuild",
+        "--sign", "3rd Party Mac Developer Installer: Tanin Na Nakorn (S6482XAL5E)",
+        "--component", app.absolutePath,
+        "/Applications",
+        outputs.files.singleFile.absolutePath,
+    )
+}
+
+tasks.register<Exec>("validatePkg") {
+    dependsOn("convertToPkg")
+    inputs.file(tasks.named("convertToPkg").get().outputs.files.singleFile)
+    commandLine(
+        "/usr/bin/xcrun",
+        "altool",
+        "--validate-app",
+        "-f", inputs.files.singleFile.absolutePath,
+        "-t", "osx",
+        "-u", appleEmail,
+        "-p", appleAppSpecificPassword
+    )
+}
+
+
+tasks.register<Exec>("uploadPkgToAppStore") {
+    dependsOn("validatePkg")
+    inputs.file(tasks.named("convertToPkg").get().outputs.files.singleFile)
+    commandLine(
+        "/usr/bin/xcrun",
+        "altool",
+        "--upload-app",
+        "-f", inputs.files.singleFile.absolutePath,
+        "-t", "osx",
+        "-u", appleEmail,
+        "-p", appleAppSpecificPassword
     )
 }
