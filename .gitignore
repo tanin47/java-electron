@@ -12,5 +12,4 @@ SYSTEM_RUNNING
 build
 jdk
 hs_err_*.log
-libwebview.dylib
 /secret
