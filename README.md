@@ -1,17 +1,25 @@
 Java Electron
 ===============================================================================
 
-It's like Electron but for Java. Now you can build cross-platform desktop apps with Java, JavaScript, HTML, and CSS.
+Java Electron is a Java project template for building a Java-based desktop app while using Javascript, HTML and CSS for the UI. It's like Electron but for Java. 
 
-The example app runs in MacOS's App Sandbox, can be notarized successfully, and is ~50MB in its final size. The example app currently works with Mac
-(Apple Silicon). It also publishes to TestFlight and Apple App Store successfully.
+If you have a Java website that you want to convert to a desktop app, Java Electron might be for you.
+
+If you are proficient in Java (for backend) and JS/HTML/CSS (for frontend), Java Electron might be a good fit for you for building a desktop app.
+
+This example provides the followings:
+
+- A process for development with JS hot-reloading.
+- A secure mechanism to communicate between the JS code and Java.
+- A working process to codesign and notarize your app
+- A working process to codesign and publish your app to TestFlight and Apple App Store
+- A working CI that publishes a notarized app and a packaged app to TestFlight and Apple App Store. See [.github](./.github).
 
 You can download the app here: https://github.com/tanin47/java-electron/releases
 
-Other platforms are coming soon as I work toward launching the desktop version of [Backdoor](https://github.com/tanin47/backdoor) (Self-hostable single-jar database querying and editing tool for you and your team) on different platforms.
+Java Electron only works on Mac (Apple Silicon) for now. Other platforms are coming soon as I work toward launching the desktop version of [Backdoor](https://github.com/tanin47/backdoor) (Self-hostable single-jar database querying and editing tool for you and your team) on different platforms.
 
 ![Demo Application](demo.png)
-
 
 If you have questions or are stuck, please don't hesitate to open an issue. I'm always happy to help!
 
@@ -27,10 +35,12 @@ Supported platforms
 
 
 
-How to run
------------
+How to run locally
+-------------------
 
-1. Run `npm run hmr` in one terminal and run `./gradlew run` in another terminal. This supports hot-reloading your JS code.
+Run `npm run hmr` in one terminal and run `./gradlew run` in another terminal. 
+
+This supports hot-reloading your JS code.
 
 
 How to package a DMG
