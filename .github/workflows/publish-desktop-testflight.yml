@@ -84,7 +84,7 @@ jobs:
           else
             TAG=${GITHUB_REF#refs/tags/}
           fi
-          if [[ ! "$TAG" =~ ^v- ]]; then
+          if [[ ! "$TAG" =~ ^v ]]; then
             echo "Error: Tag ($TAG) must start with 'v'"
             exit 1
           fi
