@@ -2,6 +2,7 @@ package tanin.javaelectron;
 
 import tanin.ejwf.MinumBuilder;
 import tanin.ejwf.SelfSignedCertificate;
+import tanin.javaelectron.nativeinterface.Base;
 
 import java.io.IOException;
 import java.util.logging.LogManager;
@@ -17,6 +18,9 @@ public class Main {
     } catch (IOException e) {
       logger.warning("Could not load the log config file (logging.properties): " + e.getMessage());
     }
+
+    // Setting up the native lib path must be the first thing we do.
+    logger.info("Native lib path: " + Base.nativeDir.getAbsolutePath());
   }
 
   public static void main(String[] args) throws Exception {
