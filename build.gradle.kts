@@ -57,7 +57,7 @@ group = "tanin.javaelectron"
 val appName = "JavaElectron"
 val packageIdentifier = "tanin.javaelectron.macos.app"
 version = "1.0"
-val internalVersion = "1.0.1"
+val internalVersion = "1.0.3"
 
 description = "Build cross-platform desktop apps with Java, JavaScript, HTML, and CSS"
 
@@ -281,7 +281,10 @@ private fun codesignInJar(jarFile: File, nativeLibPath: File) {
             println("")
             codesign(libFile)
 
-            if (libFile.absolutePath.contains("darwin-x86-64")) {
+            if (
+                libFile.absolutePath.contains("darwin-x86-64") || // for libjnidispatch.jnilib
+                libFile.absolutePath.contains("x86_64") // for liblz4-java.dylib
+            ) {
                 // Skip the jna's x86-64 lib
             } else {
                 runCmd("cp", libFile.absolutePath, nativeLibPath.absolutePath)
@@ -414,9 +417,10 @@ tasks.register("bareJpackage") {
             "--resource-dir", layout.projectDirectory.dir("mac-resources").asFile.absolutePath,
             "--app-content", provisionprofileDir.file("embedded.provisionprofile").asFile.absolutePath,
             "--app-content", layout.buildDirectory.file("resources-native").get().asFile.resolve("app").absolutePath,
-            // -XstartOnFirstThread requires for MacOs
             "--java-options",
-            "-XstartOnFirstThread --add-exports java.base/sun.security.x509=ALL-UNNAMED --add-exports java.base/sun.security.tools.keytool=ALL-UNNAMED"
+            // -XstartOnFirstThread is required for MacOs
+            // -Djava.library.path=$APPDIR/resources is needed because we put all dylibs there.
+            "-XstartOnFirstThread -Djava.library.path=\$APPDIR/resources --add-exports java.base/sun.security.x509=ALL-UNNAMED --add-exports java.base/sun.security.tools.keytool=ALL-UNNAMED"
         )
     }
 }
@@ -426,16 +430,17 @@ tasks.register("jpackage") {
 
     inputs.file(tasks.named("bareJpackage").get().outputs.files.singleFile)
 
-    val outputDir = layout.buildDirectory.dir("jpackage").get().asFile
-    val outputAppFile = outputDir.resolve("$appName.app")
-    val outputDmgFile = outputDir.resolve(inputs.files.singleFile.name)
+    val outputAppDir = layout.buildDirectory.dir("extracted-dmg").get().asFile
+    val outputAppFile = outputAppDir.resolve("$appName.app")
+    val outputDmgDir = layout.buildDirectory.dir("dmg").get().asFile
+    val outputDmgFile = outputDmgDir.resolve(inputs.files.singleFile.name)
 
     outputs.dir(outputAppFile)
     outputs.file(outputDmgFile)
 
     doLast {
-        outputDir.deleteRecursively()
-        outputDir.mkdirs()
+        outputAppDir.deleteRecursively()
+        outputAppDir.mkdirs()
         var volumeName: String? = null
         val output = runCmd("/usr/bin/hdiutil", "attach", "-readonly", inputs.files.singleFile.absolutePath)
 
@@ -463,11 +468,18 @@ tasks.register("jpackage") {
         codesign(outputAppFile.resolve("Contents/runtime"), useRuntimeEntitlement = true)
         codesign(outputAppFile)
 
+        outputDmgDir.deleteRecursively()
+        outputDmgDir.mkdirs()
+
+        // Sometimes we need to unlock the *.app file in order to allow hdiutil to package it into DMG.
+        // It seems to happen when TestFlight is reusing the file.
+        runCmd("chflags", "nouchg,noschg", outputAppFile.absolutePath)
+
         runCmd(
             "/usr/bin/hdiutil",
             "create",
             "-ov",
-            "-srcFolder", outputDir.absolutePath,
+            "-srcFolder", outputAppDir.absolutePath,
             outputDmgFile.absolutePath,
         )
     }
