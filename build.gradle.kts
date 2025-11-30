@@ -56,8 +56,8 @@ val appleTeamId = "S6482XAL5E"
 group = "tanin.javaelectron"
 val appName = "JavaElectron"
 val packageIdentifier = "tanin.javaelectron.macos.app"
-version = "1.0"
-val internalVersion = "1.0.3"
+version = "1.1"
+val internalVersion = "1.1.0"
 
 description = "Build cross-platform desktop apps with Java, JavaScript, HTML, and CSS"
 
