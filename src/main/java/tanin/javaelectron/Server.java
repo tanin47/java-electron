@@ -6,8 +6,11 @@ import com.renomad.minum.web.Response;
 import com.renomad.minum.web.StatusLine;
 import tanin.ejwf.MinumBuilder;
 import tanin.ejwf.SelfSignedCertificate;
+import tanin.javaelectron.nativeinterface.MacOsApi;
 
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.security.KeyManagementException;
 import java.security.KeyStoreException;
 import java.security.NoSuchAlgorithmException;
@@ -17,6 +20,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import static com.renomad.minum.web.RequestLine.Method.GET;
@@ -28,13 +32,17 @@ public class Server {
   public FullSystem minum;
   SelfSignedCertificate cert;
   String authKey;
+  Browser.JsInvoker jsInvoker;
 
-  public Server(SelfSignedCertificate cert, String authKey) {
+  public Server(SelfSignedCertificate cert, String authKey, Browser.JsInvoker jsInvoker) {
     this.cert = cert;
     this.authKey = authKey;
+    this.jsInvoker = jsInvoker;
   }
 
   public static final String AUTH_KEY_COOKIE_KEY = "Auth";
+
+  private MacOsApi.OnFileSelected onFileSelected = null;
 
   public void start() throws CertificateException, KeyStoreException, IOException, NoSuchAlgorithmException, KeyManagementException {
     var keyStorePassword = SelfSignedCertificate.generateRandomString(64);
@@ -63,7 +71,23 @@ public class Server {
         );
       }
 
-      return inputs.endpoint().apply(inputs.clientRequest());
+      try {
+        logger.info(request.getRequestLine().getMethod() + " " + request.getRequestLine().getPathDetails().getIsolatedPath());
+        var response = inputs.endpoint().apply(inputs.clientRequest());
+        logger.info(request.getRequestLine().getMethod() + " " + request.getRequestLine().getPathDetails().getIsolatedPath() + " " + response.getStatusCode());
+        return response;
+      } catch (Exception e) {
+        return Response.buildResponse(
+          StatusLine.StatusCode.CODE_400_BAD_REQUEST,
+          Map.of("Content-Type", "application/json"),
+          Json.object()
+            .add("errors", Json.array(e.getMessage()))
+            .toString()
+        );
+      } catch (Throwable e) {
+        logger.log(Level.SEVERE, request.getRequestLine().getMethod() + " " + request.getRequestLine().getPathDetails().getIsolatedPath() + " raised an error.", e);
+        throw e;
+      }
     });
 
     wf.registerPath(
@@ -98,6 +122,68 @@ public class Server {
         );
       }
     );
+
+    // We cannot use webview_bind due to the synchronous nature of it. The callback has to be blocked.
+    // However, if the callback is blocked, then the file dialog which needs to run on the main thread wouldn't show.
+    wf.registerPath(
+      POST,
+      "open-file",
+      req -> {
+
+        onFileSelected = filePath -> {
+          System.out.println("Opening file: " + filePath);
+
+          MacOsApi.N.startAccessingSecurityScopedResource(filePath);
+          try {
+            String content = Files.readString(Path.of(filePath));
+            jsInvoker.invoke("window.triggerFileContentRead(" + Json.object().add("content", content).toString()  + ")");
+          } catch (IOException e) {
+            logger.log(Level.SEVERE, "Error reading file: " + filePath, e);
+          } finally {
+            MacOsApi.N.stopAccessingSecurityScopedResource(filePath);
+          }
+        };
+        MacOsApi.N.openFile(onFileSelected);
+
+        return Response.buildResponse(
+          StatusLine.StatusCode.CODE_200_OK,
+          Map.of("Content-Type", "application/json"),
+          Json.object().toString()
+        );
+      }
+    );
+
+    wf.registerPath(
+      POST,
+      "save-file",
+      req -> {
+
+        onFileSelected = filePath -> {
+          System.out.println("Saving file: " + filePath);
+
+          MacOsApi.N.startAccessingSecurityScopedResource(filePath);
+          try {
+            String randomContent = "Random content generated at: " + java.time.LocalDateTime.now();
+            Files.writeString(Path.of(filePath), randomContent);
+            System.out.println("Successfully wrote content to file: " + filePath);
+
+            jsInvoker.invoke("window.triggerFileSaved(" + Json.object().add("filePath", filePath).toString()  + ")");
+          } catch (IOException e) {
+            logger.log(Level.SEVERE, "Error writing to file: " + filePath, e);
+          } finally {
+            MacOsApi.N.stopAccessingSecurityScopedResource(filePath);
+          }
+        };
+        MacOsApi.N.saveFile(onFileSelected);
+
+        return Response.buildResponse(
+          StatusLine.StatusCode.CODE_200_OK,
+          Map.of("Content-Type", "application/json"),
+          Json.object().toString()
+        );
+      }
+    );
+
     logger.info("Finishing registering...");
   }
 

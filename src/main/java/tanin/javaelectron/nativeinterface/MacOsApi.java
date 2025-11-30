@@ -1,5 +1,6 @@
 package tanin.javaelectron.nativeinterface;
 
+import com.sun.jna.Callback;
 import com.sun.jna.Library;
 import com.sun.jna.Native;
 
@@ -22,4 +23,14 @@ public interface MacOsApi extends Library {
   void setupMenu();
 
   void nsWindowMakeKeyAndOrderFront();
+
+  public static interface OnFileSelected extends Callback {
+    public void invoke(String filePath);
+  }
+
+  void openFile(OnFileSelected onFileSelected);
+  void saveFile(OnFileSelected onFileSelected);
+
+  boolean startAccessingSecurityScopedResource(String url);
+  void stopAccessingSecurityScopedResource(String url);
 }

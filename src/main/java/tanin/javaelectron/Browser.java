@@ -10,6 +10,10 @@ import java.util.logging.Logger;
 import static tanin.javaelectron.nativeinterface.WebviewNative.N;
 
 public class Browser {
+  public static interface JsInvoker {
+    void invoke(String js);
+  }
+  
   private static final Logger logger = Logger.getLogger(Browser.class.getName());
 
   String url;
@@ -37,6 +41,10 @@ public class Browser {
       N.webview_destroy(this.pointer);
       this.pointer = 0;
     }
+  }
+
+  public void eval(String js) {
+    N.webview_eval(pointer, js);
   }
 
   private void terminate() {

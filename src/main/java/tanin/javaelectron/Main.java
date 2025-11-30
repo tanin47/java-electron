@@ -11,6 +11,8 @@ import java.util.logging.Logger;
 public class Main {
   private static final Logger logger = Logger.getLogger(Main.class.getName());
 
+  private static Browser browser;
+
   static {
     try (var configFile = Main.class.getResourceAsStream("/logging.properties")) {
       LogManager.getLogManager().readConfiguration(configFile);
@@ -29,13 +31,16 @@ public class Main {
     logger.info("  Certificate SHA-256 Fingerprint: " + SelfSignedCertificate.getSHA256Fingerprint(cert.cert().getEncoded()));
 
     var authKey = SelfSignedCertificate.generateRandomString(32);
-    var main = new Server(cert, authKey);
+    var main = new Server(cert, authKey, js -> browser.eval(js));
     logger.info("Starting...");
     main.start();
 
     var sslPort = main.minum.getSslServer().getPort();
 
-    var browser = new Browser("https://localhost:" + sslPort + "?authKey=" + authKey, MinumBuilder.IS_LOCAL_DEV);
+    browser = new Browser(
+      "https://localhost:" + sslPort + "?authKey=" + authKey,
+      MinumBuilder.IS_LOCAL_DEV
+    );
     browser.run();
 
     logger.info("Exiting");
