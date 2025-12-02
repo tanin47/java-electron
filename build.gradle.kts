@@ -1,6 +1,7 @@
 import org.gradle.api.tasks.testing.logging.TestExceptionFormat
 import java.nio.file.Files
 import java.nio.file.Paths
+import java.util.Locale
 import kotlin.io.path.absolutePathString
 import kotlin.io.path.createTempDirectory
 import kotlin.io.path.isExecutable
@@ -11,10 +12,22 @@ plugins {
     jacoco
 }
 
+enum class OS {
+    MAC, WINDOWS, LINUX
+}
+
+val currentOS = when {
+    System.getProperty("os.name").lowercase().contains("mac") -> OS.MAC
+    System.getProperty("os.name").lowercase().contains("windows") -> OS.WINDOWS
+    else -> OS.LINUX
+}
+
 
 val isNotarizing = System.getenv("NOTARIZE") != null || gradle.startParameter.taskNames.find { s ->
     s.lowercase().contains("notarize") || s.lowercase().contains("jpackage") || s.lowercase().contains("staple")
 } != null
+
+
 
 val provisionprofileDir = layout.projectDirectory
     .dir("mac-resources")
@@ -75,7 +88,28 @@ java {
     }
 }
 
+tasks.register<Exec>("compileWindowsApi") {
+    onlyIf {
+        currentOS == OS.WINDOWS
+    }
+    group = "build"
+    description = "Compile C code and output the dll to the resource directory."
+
+    commandLine(
+        "gcc",
+        "-shared",
+        "-o",
+        "./src/main/resources/native/WindowsApi.dll",
+        "./src/main/c/WindowsApi.c",
+        "-lcomdlg32",
+        "-lgdi32"
+    )
+}
+
 tasks.register<Exec>("compileSwift") {
+    onlyIf {
+        System.getProperty("os.name").lowercase().contains("mac")
+    }
     group = "build"
     description = "Compile Swift code and output the dylib to the resource directory."
 
@@ -96,7 +130,11 @@ tasks.register<Exec>("compileSwift") {
 }
 
 tasks.named<JavaCompile>("compileJava") {
-    dependsOn("compileSwift")
+    if (currentOS == OS.MAC) {
+        dependsOn("compileSwift")
+    } else if (currentOS == OS.WINDOWS) {
+        dependsOn("compileWindowsApi")
+    }
     options.compilerArgs.addAll(listOf(
         "--add-exports",
         "java.base/sun.security.x509=ALL-UNNAMED",
@@ -148,24 +186,28 @@ tasks.named<Test>("test") {
 var mainClassName = "tanin.javaelectron.Main"
 application {
     mainClass.set(mainClassName)
-    applicationDefaultJvmArgs = listOf(
-        "-XstartOnFirstThread",
-        "--add-exports",
-        "java.base/sun.security.x509=ALL-UNNAMED",
-        "--add-exports",
-        "java.base/sun.security.tools.keytool=ALL-UNNAMED",
-    )
+    applicationDefaultJvmArgs = buildList {
+        if (currentOS == OS.MAC) {
+            add("-XstartOnFirstThread")
+        }
+        add("--add-exports")
+        add("java.base/sun.security.x509=ALL-UNNAMED")
+        add("--add-exports")
+        add("java.base/sun.security.tools.keytool=ALL-UNNAMED")
+    }
 }
 
 tasks.jar {
     manifest.attributes["Main-Class"] = mainClassName
 }
 
+val executableExt = if (currentOS == OS.WINDOWS) ".cmd" else ""
+
 tasks.register<Exec>("compileTailwind") {
     environment("NODE_ENV", "production")
+    executable = "./node_modules/.bin/postcss${executableExt}"
 
-    commandLine(
-        "./node_modules/.bin/postcss",
+    args = listOf(
         "./frontend/stylesheets/tailwindbase.css",
         "--config",
         ".",
@@ -177,9 +219,9 @@ tasks.register<Exec>("compileTailwind") {
 tasks.register<Exec>("compileSvelte") {
     environment("NODE_ENV", "production")
     environment("ENABLE_SVELTE_CHECK", "true")
+    executable = "./node_modules/.bin/webpack${executableExt}"
 
-    commandLine(
-        "./node_modules/webpack/bin/webpack.js",
+    args = listOf(
         "--config",
         "./webpack.config.js",
         "--output-path",
@@ -398,6 +440,13 @@ tasks.register("bareJpackage") {
     outputs.file(outputFile)
     outputDir.get().asFile.deleteRecursively()
 
+    // -XstartOnFirstThread is required for MacOS
+    val maybeStartOnFirstThread = if (currentOS == OS.MAC) {
+        "-XstartOnFirstThread"
+    } else {
+        ""
+    }
+
     doLast {
         runCmd(
             jpackageBin.absolutePathString(),
@@ -418,9 +467,8 @@ tasks.register("bareJpackage") {
             "--app-content", provisionprofileDir.file("embedded.provisionprofile").asFile.absolutePath,
             "--app-content", layout.buildDirectory.file("resources-native").get().asFile.resolve("app").absolutePath,
             "--java-options",
-            // -XstartOnFirstThread is required for MacOs
             // -Djava.library.path=$APPDIR/resources is needed because we put all dylibs there.
-            "-XstartOnFirstThread -Djava.library.path=\$APPDIR/resources --add-exports java.base/sun.security.x509=ALL-UNNAMED --add-exports java.base/sun.security.tools.keytool=ALL-UNNAMED"
+            "$maybeStartOnFirstThread -Djava.library.path=\$APPDIR/resources --add-exports java.base/sun.security.x509=ALL-UNNAMED --add-exports java.base/sun.security.tools.keytool=ALL-UNNAMED"
         )
     }
 }

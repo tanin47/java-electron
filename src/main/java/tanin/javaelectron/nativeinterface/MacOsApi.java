@@ -13,6 +13,7 @@ public interface MacOsApi extends Library {
 
   private static MacOsApi runSetup() {
     logger.info("Load MacOsApi library");
+    var _ignored = Base.nativeDir;
     return Native.load(
       "MacOsApi",
       MacOsApi.class,

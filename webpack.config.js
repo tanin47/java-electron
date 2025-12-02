@@ -17,7 +17,7 @@ function buildEntry(mode) {
 
     if (mode === 'development') {
       entry[key] = [
-        "webpack-hot-middleware/client?path=https://localhost:8090/__webpack_hmr&timeout=5000&reload=true",
+        "webpack-hot-middleware/client?path=/__webpack_hmr&timeout=5000&reload=true",
         `./${relativePath}`
       ]
     } else {
@@ -26,8 +26,8 @@ function buildEntry(mode) {
   }
 
   if (mode === 'development') {
-    entry['stylesheets/tailwindbase'] = [
-      `webpack-hot-middleware/client?path=https://localhost:8090/__webpack_hmr&timeout=5000&reload=true`,
+    entry[pathModule.join('stylesheets', 'tailwindbase')] = [
+      `webpack-hot-middleware/client?path=/__webpack_hmr&timeout=5000&reload=true`,
       './frontend/stylesheets/tailwindbase.css',
     ]
   }
