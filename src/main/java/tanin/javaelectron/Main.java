@@ -3,6 +3,7 @@ package tanin.javaelectron;
 import tanin.ejwf.MinumBuilder;
 import tanin.ejwf.SelfSignedCertificate;
 import tanin.javaelectron.nativeinterface.Base;
+import tanin.javaelectron.nativeinterface.WindowsApi;
 
 import java.io.IOException;
 import java.util.logging.LogManager;
@@ -10,8 +11,6 @@ import java.util.logging.Logger;
 
 public class Main {
   private static final Logger logger = Logger.getLogger(Main.class.getName());
-
-  private static Browser browser;
 
   static {
     try (var configFile = Main.class.getResourceAsStream("/logging.properties")) {
@@ -31,16 +30,18 @@ public class Main {
     logger.info("  Certificate SHA-256 Fingerprint: " + SelfSignedCertificate.getSHA256Fingerprint(cert.cert().getEncoded()));
 
     var authKey = SelfSignedCertificate.generateRandomString(32);
-    var main = new Server(cert, authKey, js -> browser.eval(js));
+    var main = new Server(cert, authKey);
     logger.info("Starting...");
     main.start();
 
-    var sslPort = main.minum.getSslServer().getPort();
+    var port = main.minum.getSslServer().getPort();
+//    var port = main.minum.getServer().getPort();
 
-    browser = new Browser(
-      "https://localhost:" + sslPort + "?authKey=" + authKey,
+    var browser = new Browser(
+      "https://localhost:" + port + "?authKey=" + authKey,
       MinumBuilder.IS_LOCAL_DEV
     );
+    main.browser = browser;
     browser.run();
 
     logger.info("Exiting");

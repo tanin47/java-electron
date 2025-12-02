@@ -7,7 +7,11 @@ import com.renomad.minum.web.StatusLine;
 import tanin.ejwf.MinumBuilder;
 import tanin.ejwf.SelfSignedCertificate;
 import tanin.javaelectron.nativeinterface.MacOsApi;
+import tanin.javaelectron.nativeinterface.WebviewNative;
+import tanin.javaelectron.nativeinterface.WindowsApi;
 
+import javax.swing.*;
+import java.awt.*;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -32,19 +36,18 @@ public class Server {
   public FullSystem minum;
   SelfSignedCertificate cert;
   String authKey;
-  Browser.JsInvoker jsInvoker;
+  public Browser browser;
 
-  public Server(SelfSignedCertificate cert, String authKey, Browser.JsInvoker jsInvoker) {
+  public Server(SelfSignedCertificate cert, String authKey) {
     this.cert = cert;
     this.authKey = authKey;
-    this.jsInvoker = jsInvoker;
   }
 
   public static final String AUTH_KEY_COOKIE_KEY = "Auth";
 
-  private MacOsApi.OnFileSelected onFileSelected = null;
+  private Browser.OnFileSelected onFileSelected = null;
 
-  public void start() throws CertificateException, KeyStoreException, IOException, NoSuchAlgorithmException, KeyManagementException {
+  public void start() throws CertificateException, KeyStoreException, NoSuchAlgorithmException, KeyManagementException, IOException {
     var keyStorePassword = SelfSignedCertificate.generateRandomString(64);
     var keyStoreFile = SelfSignedCertificate.generateKeyStoreFile(cert, keyStorePassword);
     logger.info("Generated keystore file: " + keyStoreFile);
@@ -129,21 +132,15 @@ public class Server {
       POST,
       "open-file",
       req -> {
-
         onFileSelected = filePath -> {
-          System.out.println("Opening file: " + filePath);
-
-          MacOsApi.N.startAccessingSecurityScopedResource(filePath);
           try {
             String content = Files.readString(Path.of(filePath));
-            jsInvoker.invoke("window.triggerFileContentRead(" + Json.object().add("content", content).toString()  + ")");
+            browser.eval("window.triggerFileContentRead(" + Json.object().add("content", content).toString()  + ")");
           } catch (IOException e) {
-            logger.log(Level.SEVERE, "Error reading file: " + filePath, e);
-          } finally {
-            MacOsApi.N.stopAccessingSecurityScopedResource(filePath);
+            throw new RuntimeException(e);
           }
         };
-        MacOsApi.N.openFile(onFileSelected);
+        browser.openFileDialog(false, onFileSelected);
 
         return Response.buildResponse(
           StatusLine.StatusCode.CODE_200_OK,
@@ -160,21 +157,17 @@ public class Server {
 
         onFileSelected = filePath -> {
           System.out.println("Saving file: " + filePath);
-
-          MacOsApi.N.startAccessingSecurityScopedResource(filePath);
           try {
             String randomContent = "Random content generated at: " + java.time.LocalDateTime.now();
             Files.writeString(Path.of(filePath), randomContent);
             System.out.println("Successfully wrote content to file: " + filePath);
 
-            jsInvoker.invoke("window.triggerFileSaved(" + Json.object().add("filePath", filePath).toString()  + ")");
+            browser.eval("window.triggerFileSaved(" + Json.object().add("filePath", filePath).toString()  + ")");
           } catch (IOException e) {
-            logger.log(Level.SEVERE, "Error writing to file: " + filePath, e);
-          } finally {
-            MacOsApi.N.stopAccessingSecurityScopedResource(filePath);
+            throw new RuntimeException(e);
           }
         };
-        MacOsApi.N.saveFile(onFileSelected);
+        browser.openFileDialog(true, onFileSelected);
 
         return Response.buildResponse(
           StatusLine.StatusCode.CODE_200_OK,
