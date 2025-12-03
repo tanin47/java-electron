@@ -1,7 +1,7 @@
 import org.gradle.api.tasks.testing.logging.TestExceptionFormat
+import org.gradle.internal.extensions.stdlib.toDefaultLowerCase
 import java.nio.file.Files
 import java.nio.file.Paths
-import java.util.Locale
 import kotlin.io.path.absolutePathString
 import kotlin.io.path.createTempDirectory
 import kotlin.io.path.isExecutable
@@ -256,8 +256,19 @@ tasks.register("copyJar", Copy::class) {
     from(tasks.jar).into(layout.buildDirectory.dir("jmods"))
 }
 
+private fun maskSecret(commandLine: String): String {
+    return commandLine.split(" ").joinToString(" ") { arg ->
+        val sanitized = arg.toDefaultLowerCase()
+        if (sanitized.contains("password") || sanitized.contains("secret")) {
+            "<REDACTED>"
+        } else {
+            arg
+        }
+    }
+}
+
 private fun runCmd(currentDir: File, vararg args: String): String {
-    println("Executing command: ${args.joinToString(" ")}")
+    println("Executing command: ${maskSecret(args.joinToString(" "))} at ${currentDir.absolutePath}")
 
     val output = StringBuilder()
     val process = ProcessBuilder(*args)
@@ -607,18 +618,18 @@ tasks.register("jpackageForWindows") {
         outputAppDir.mkdirs()
 
         runCmd(
-            File(System.getenv("CODESIGN_TOOL_DIR")),
-            "bash",
-            "-c",
+            File(System.getenv("CODESIGN_TOOL_DIR")).canonicalFile,
+            "cmd",
+            "/c",
             listOf(
                 "CodeSignTool.bat",
                 "sign",
                 "-input_file_path=${inputs.files.singleFile.absolutePath}",
                 "-output_dir_path=${outputAppDir.absolutePath}",
-                "-program_name=Backdoor",
-                $$"-username=$SSL_COM_USERNAME",
-                $$"-password=$SSL_COM_PASSWORD",
-                $$"-totp_secret=$SSL_COM_TOTP_SECRET",
+                "-program_name=JavaElectron",
+                "-username=${System.getenv("SSL_COM_USERNAME")}",
+                "-password=${System.getenv("SSL_COM_PASSWORD")}",
+                "-totp_secret=${System.getenv("SSL_COM_TOTP_SECRET")}",
             )
                 .joinToString(" ")
                 .replace("\\", "/")
