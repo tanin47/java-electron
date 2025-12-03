@@ -1,4 +1,4 @@
-name: create-release-mac
+name: create-release-windows
 
 on:
   push:
@@ -18,6 +18,9 @@ permissions:
 jobs:
   build:
     runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
 
     steps:
       - name: Checkout
@@ -38,22 +41,26 @@ jobs:
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
       - name: Get version
         id: version
-        run: echo "VERSION=$(./gradlew -q printInternalVersion)" >> "$GITHUB_OUTPUT"
+        run: |
+          $version = ./gradlew -q printInternalVersion
+          "VERSION=$version" >> $env:GITHUB_OUTPUT
+        shell: powershell
       - name: Validate the tag name
         run: |
-          if [ "${{ github.event_name }}" == "workflow_dispatch" ] && [ ! -z "${{ github.event.inputs.tag }}" ]; then
-            TAG=${{ github.event.inputs.tag }}
-          else
-            TAG=${GITHUB_REF#refs/tags/}
-          fi
-          if [[ ! "$TAG" =~ ^v ]]; then
-            echo "Error: Tag ($TAG) must start with 'v'"
+          if ("${{ github.event_name }}" -eq "workflow_dispatch" -and -not [string]::IsNullOrEmpty("${{ github.event.inputs.tag }}")) {
+            $TAG = "${{ github.event.inputs.tag }}"
+          } else {
+            $TAG = $env:GITHUB_REF -replace "refs/tags/",""
+          }
+          if ($TAG -notmatch "^v") {
+            Write-Error "Error: Tag ($TAG) must start with 'v'"
             exit 1
-          fi
-          if [[ ! $TAG == v${{ steps.version.outputs.VERSION }} ]]; then
-            echo "Error: Git tag version ($TAG) doesn't match project version (v${{ steps.version.outputs.VERSION }})"
+          }
+          if ($TAG -ne "v${{ steps.version.outputs.VERSION }}") {
+            Write-Error "Error: Git tag version ($TAG) doesn't match project version (v${{ steps.version.outputs.VERSION }})"  
             exit 1
-          fi
+          }
+        shell: powershell
       - name: Install Node modules
         run: npm install
       - name: Download CodeSignTool and extract
@@ -63,7 +70,7 @@ jobs:
           Invoke-WebRequest -Uri "https://www.ssl.com/download/codesigntool-for-windows/" -OutFile "./build-tools/CodeSignTool.zip"
           Expand-Archive -Path "./build-tools/CodeSignTool.zip" -DestinationPath "./build-tools/codesign" -Force
           Remove-Item "./build-tools/CodeSignTool.zip"
-        shell: pwsh
+        shell: powershell
       - name: Download wixtool 3 and extract
         run: |
           $ProgressPreference = 'SilentlyContinue'
@@ -71,10 +78,14 @@ jobs:
           Invoke-WebRequest -Uri "https://github.com/wixtoolset/wix3/releases/download/wix3141rtm/wix314-binaries.zip" -OutFile "./build-tools/wix-binaries.zip"
           Expand-Archive -Path "./build-tools/wix-binaries.zip" -DestinationPath "./build-tools/wixtool" -Force
           Remove-Item "./build-tools/wix-binaries.zip"
-        shell: pwsh
+        shell: powershell
+      - name: Update MSYS2 and install MinGW-w64 GCC
+        run: |
+          pacman -Syu --noconfirm
+          pacman -S --needed --noconfirm base-devel mingw-w64-x86_64-toolchain
       - name: Build an MSI
         run: |
-          export PATH="$PATH:$PWD/build-tools/wixtool"
+          export PATH="${PATH}:$PWD/build-tools/wixtool"
           ./gradlew clean jpackage
         env:
           CODESIGN_TOOL_DIR: "./build-tools/codesign"
