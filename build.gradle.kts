@@ -607,15 +607,21 @@ tasks.register("jpackageForWindows") {
         outputAppDir.mkdirs()
 
         runCmd(
-            File("c:\\Users\\tanin\\projects\\CodeSignTool-v1.3.2-windows"),
-            "CodeSignTool.bat",
-            "sign",
-            "-input_file_path=${inputs.files.singleFile.absolutePath}",
-            "-output_dir_path=${outputAppDir.absolutePath}",
-            "-program_name=JavaElectron",
-            "-username=${System.getenv("SSL_COM_USERNAME")}",
-            "-password=${System.getenv("SSL_COM_PASSWORD")}",
-            "-totp_secret=${System.getenv("SSL_COM_TOTP_SECRET")}"
+            File(System.getenv("CODESIGN_TOOL_DIR")),
+            "bash",
+            "-c",
+            listOf(
+                "CodeSignTool.bat",
+                "sign",
+                "-input_file_path=${inputs.files.singleFile.absolutePath}",
+                "-output_dir_path=${outputAppDir.absolutePath}",
+                "-program_name=Backdoor",
+                $$"-username=$SSL_COM_USERNAME",
+                $$"-password=$SSL_COM_PASSWORD",
+                $$"-totp_secret=$SSL_COM_TOTP_SECRET",
+            )
+                .joinToString(" ")
+                .replace("\\", "/")
         )
     }
 }

@@ -13,3 +13,4 @@ build
 jdk
 hs_err_*.log
 /secret
+/build-tools

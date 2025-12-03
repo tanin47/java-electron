@@ -1,6 +1,9 @@
-name: publish-desktop-testflight
+name: create-release-mac
 
 on:
+  push:
+    tags:
+      - 'v*'
   workflow_dispatch:
     inputs:
       tag:
@@ -94,8 +97,18 @@ jobs:
           fi
       - name: Install Node modules
         run: npm install
-      - name: Build & upload to TestFlight
-        run: ./gradlew clean uploadPkgToAppStore
+      - name: Build & notarize the DMG
+        run: ./gradlew clean staple
         env:
           APPLE_EMAIL: ${{ secrets.APPLE_EMAIL }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+      - name: Upload Release Asset
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          prerelease: true
+          files: ./build/dmg/*.dmg
+          overwrite_files: true
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+          tag_name: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
