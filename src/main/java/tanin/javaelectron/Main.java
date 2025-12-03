@@ -35,7 +35,6 @@ public class Main {
     main.start();
 
     var port = main.minum.getSslServer().getPort();
-//    var port = main.minum.getServer().getPort();
 
     var browser = new Browser(
       "https://localhost:" + port + "?authKey=" + authKey,

@@ -256,12 +256,12 @@ tasks.register("copyJar", Copy::class) {
     from(tasks.jar).into(layout.buildDirectory.dir("jmods"))
 }
 
-private fun runCmd(vararg args: String): String {
+private fun runCmd(currentDir: File, vararg args: String): String {
     println("Executing command: ${args.joinToString(" ")}")
 
     val output = StringBuilder()
     val process = ProcessBuilder(*args)
-        .directory(layout.projectDirectory.asFile)
+        .directory(currentDir)
         .start()
 
     // Print stdout
@@ -286,49 +286,72 @@ private fun runCmd(vararg args: String): String {
     return output.toString()
 }
 
+private fun runCmd(vararg args: String): String {
+    return runCmd(layout.projectDirectory.asFile, *args)
+}
+
 private fun codesign(file: File, useRuntimeEntitlement: Boolean = false) {
-    runCmd(
-        "codesign",
-        "-vvvv",
-        "--options",
-        "runtime",
-        "--entitlements",
-        if (useRuntimeEntitlement) {
-            "runtime-entitlements.plist"
-        } else {
-            "entitlements.plist"
-        },
-        "--timestamp",
-        "--force",
-        "--sign",
-        macDeveloperApplicationCertName,
-        file.absolutePath,
-    )
+    if (currentOS == OS.MAC) {
+        runCmd(
+            "codesign",
+            "-vvvv",
+            "--options",
+            "runtime",
+            "--entitlements",
+            if (useRuntimeEntitlement) {
+                "runtime-entitlements.plist"
+            } else {
+                "entitlements.plist"
+            },
+            "--timestamp",
+            "--force",
+            "--sign",
+            macDeveloperApplicationCertName,
+            file.absolutePath,
+        )
+    }
 }
 
 private fun isCodesignable(file: File): Boolean {
-    val excludedExtensions = setOf("so", "a", "xml")
-    return file.extension == "dylib" ||
-            file.extension == "jnilib" ||
-            (!excludedExtensions.contains(file.extension) && file.toPath().isExecutable())
+    if (currentOS == OS.MAC) {
+        val excludedExtensions = setOf("so", "a", "xml")
+        return file.extension == "dylib" ||
+                file.extension == "jnilib" ||
+                (!excludedExtensions.contains(file.extension) && file.toPath().isExecutable())
+    } else if (currentOS == OS.WINDOWS) {
+        return file.extension == "dll"
+    } else {
+        throw Exception("Unsupported OS: $currentOS")
+    }
+}
+
+private fun isValidLibFile(file: File): Boolean {
+   if (currentOS == OS.MAC) {
+       return !(
+         file.absolutePath.contains("darwin-x86-64") || // for libjnidispatch.jnilib
+         file.absolutePath.contains("x86_64") // for liblz4-java.dylib
+       )
+   } else if (currentOS == OS.WINDOWS) {
+       return !(
+           file.absolutePath.endsWith("win32-aarch64\\jnidispatch.dll") ||
+           file.absolutePath.endsWith("win32-x86\\jnidispatch.dll")
+       )
+   } else {
+       throw Exception("Unsupported OS: $currentOS")
+   }
 }
 
 private fun codesignInJar(jarFile: File, nativeLibPath: File) {
-    val tmpDir = createTempDirectory("MacosCodesignLibsInJarsTask").toFile()
+    val tmpDir = createTempDirectory("codesignLibsInJarsTask").toFile()
     runCmd("unzip", "-q", jarFile.absolutePath, "-d", tmpDir.absolutePath)
 
     tmpDir.walk()
         .filter { it.isFile && isCodesignable(it) }
         .forEach { libFile ->
-            println("")
-            codesign(libFile)
 
-            if (
-                libFile.absolutePath.contains("darwin-x86-64") || // for libjnidispatch.jnilib
-                libFile.absolutePath.contains("x86_64") // for liblz4-java.dylib
-            ) {
-                // Skip the jna's x86-64 lib
-            } else {
+            if (isValidLibFile(libFile)) {
+                println("")
+                codesign(libFile)
                 runCmd("cp", libFile.absolutePath, nativeLibPath.absolutePath)
             }
 
@@ -344,7 +367,7 @@ private fun codesignInJar(jarFile: File, nativeLibPath: File) {
     tmpDir.deleteRecursively()
 }
 
-tasks.register("macosCodesignLibsInJars") {
+tasks.register("codesignLibsInJars") {
     dependsOn("copyDependencies", "copyJar")
     inputs.files(tasks.named("copyJar").get().outputs.files)
 
@@ -383,6 +406,7 @@ private fun removeQuarantine(file: File) {
 }
 
 tasks.register("macosCodesignProvisionprofile") {
+    onlyIf { currentOS == OS.MAC }
     doLast {
         removeQuarantine(provisionprofileDir.file("embedded.provisionprofile").asFile)
         codesign(provisionprofileDir.file("embedded.provisionprofile").asFile)
@@ -393,7 +417,7 @@ tasks.register("macosCodesignProvisionprofile") {
 }
 
 tasks.register<Exec>("jlink") {
-    dependsOn("assemble", "macosCodesignLibsInJars", "macosCodesignProvisionprofile")
+    dependsOn("assemble", "codesignLibsInJars", "macosCodesignProvisionprofile")
     val jlinkBin = Paths.get(System.getProperty("java.home"), "bin", "jlink")
 
     inputs.files(tasks.named("copyJar").get().outputs.files)
@@ -412,6 +436,7 @@ tasks.register<Exec>("jlink") {
 }
 
 tasks.register("prepareInfoPlist") {
+    onlyIf { currentOS == OS.MAC }
     doLast {
         val template = layout.projectDirectory.file("mac-resources/Info.plist.template").asFile.readText()
         val content = template
@@ -435,21 +460,32 @@ tasks.register("bareJpackage") {
     inputs.files(runtimeImage, modulePath)
 
     val outputDir = layout.buildDirectory.dir("bare-jpackage")
-    val outputFile = outputDir.get().asFile.resolve("${appName}-$version.dmg")
+    val outputFile = if (currentOS == OS.MAC) {
+        outputDir.get().asFile.resolve("${appName}-$version.dmg")
+    } else if (currentOS == OS.WINDOWS) {
+        outputDir.get().asFile.resolve("${appName}-$version.msi")
+    } else {
+        throw Exception("Unsupported OS: $currentOS")
+    }
 
     outputs.file(outputFile)
     outputDir.get().asFile.deleteRecursively()
 
-    // -XstartOnFirstThread is required for MacOS
-    val maybeStartOnFirstThread = if (currentOS == OS.MAC) {
-        "-XstartOnFirstThread"
-    } else {
-        ""
-    }
-
     doLast {
-        runCmd(
-            jpackageBin.absolutePathString(),
+        // -XstartOnFirstThread is required for MacOS
+        val maybeStartOnFirstThread = if (currentOS == OS.MAC) {
+            "-XstartOnFirstThread"
+        } else {
+            ""
+        }
+
+        val javaOptionsArg = listOf(
+            "--java-options",
+            // -Djava.library.path=$APPDIR/resources is needed because we put the needed dylibs, jnilibs, and dlls there.
+            "$maybeStartOnFirstThread -Djava.electron.packaged=true -Djava.library.path=\$APPDIR/resources --add-exports java.base/sun.security.x509=ALL-UNNAMED --add-exports java.base/sun.security.tools.keytool=ALL-UNNAMED"
+        )
+
+        val baseArgs = listOf(
             "--name", appName,
             "--app-version", version.toString(),
             "--main-jar", modulePath.resolve("${project.name}-$version.jar").absolutePath,
@@ -457,23 +493,45 @@ tasks.register("bareJpackage") {
             "--runtime-image", runtimeImage.absolutePath,
             "--input", modulePath.absolutePath,
             "--dest", outputDir.get().asFile.absolutePath,
-            "--mac-package-identifier", packageIdentifier,
-            "--mac-package-name", appName,
-            "--mac-sign",
-            "--mac-app-store",
-            "--mac-signing-key-user-name", macDeveloperApplicationCertName,
-            "--mac-entitlements", "entitlements.plist",
-            "--resource-dir", layout.projectDirectory.dir("mac-resources").asFile.absolutePath,
-            "--app-content", provisionprofileDir.file("embedded.provisionprofile").asFile.absolutePath,
             "--app-content", layout.buildDirectory.file("resources-native").get().asFile.resolve("app").absolutePath,
-            "--java-options",
-            // -Djava.library.path=$APPDIR/resources is needed because we put all dylibs there.
-            "$maybeStartOnFirstThread -Djava.library.path=\$APPDIR/resources --add-exports java.base/sun.security.x509=ALL-UNNAMED --add-exports java.base/sun.security.tools.keytool=ALL-UNNAMED"
+        ) + javaOptionsArg
+
+        val platformSpecificArgs = if (currentOS == OS.MAC) {
+            listOf(
+                "--mac-package-identifier",
+                packageIdentifier,
+                "--mac-package-name",
+                appName,
+                "--mac-sign",
+                "--mac-app-store",
+                "--mac-signing-key-user-name",
+                macDeveloperApplicationCertName,
+                "--mac-entitlements",
+                "entitlements.plist",
+                "--resource-dir",
+                layout.projectDirectory.dir("mac-resources").asFile.absolutePath,
+                "--app-content",
+                provisionprofileDir.file("embedded.provisionprofile").asFile.absolutePath,
+            )
+        } else if (currentOS == OS.WINDOWS) {
+            listOf(
+                "--type", "msi",
+                "--win-menu",
+                "--win-shortcut"
+            )
+        } else {
+            throw Exception("Unsupported OS: $currentOS")
+        }
+
+        runCmd(
+            *((listOf(jpackageBin.absolutePathString())
+                    + baseArgs + platformSpecificArgs).toTypedArray())
         )
     }
 }
 
-tasks.register("jpackage") {
+tasks.register("jpackageForMac") {
+    onlyIf { currentOS == OS.MAC }
     dependsOn("bareJpackage")
 
     inputs.file(tasks.named("bareJpackage").get().outputs.files.singleFile)
@@ -533,10 +591,43 @@ tasks.register("jpackage") {
     }
 }
 
-tasks.register<Exec>("notarize") {
-    dependsOn("jpackage")
 
-    inputs.file(tasks.named("jpackage").get().outputs.files.filter { it.extension == "dmg" }.first())
+tasks.register("jpackageForWindows") {
+    onlyIf { currentOS == OS.WINDOWS }
+    dependsOn("bareJpackage")
+
+    inputs.file(tasks.named("bareJpackage").get().outputs.files.singleFile)
+
+    val outputAppDir = layout.buildDirectory.dir("msi").get().asFile
+
+    outputs.dir(outputAppDir)
+
+    doLast {
+        outputAppDir.deleteRecursively()
+        outputAppDir.mkdirs()
+
+        runCmd(
+            File("c:\\Users\\tanin\\projects\\CodeSignTool-v1.3.2-windows"),
+            "CodeSignTool.bat",
+            "sign",
+            "-input_file_path=${inputs.files.singleFile.absolutePath}",
+            "-output_dir_path=${outputAppDir.absolutePath}",
+            "-program_name=JavaElectron",
+            "-username=${System.getenv("SSL_COM_USERNAME")}",
+            "-password=${System.getenv("SSL_COM_PASSWORD")}",
+            "-totp_secret=${System.getenv("SSL_COM_TOTP_SECRET")}"
+        )
+    }
+}
+
+tasks.register("jpackage") {
+    dependsOn("bareJpackage", "jpackageForMac", "jpackageForWindows")
+}
+
+tasks.register<Exec>("notarize") {
+    dependsOn("jpackageForMac")
+
+    inputs.file(tasks.named("jpackageForMac").get().outputs.files.filter { it.extension == "dmg" }.first())
 
     commandLine(
         "/usr/bin/xcrun",
@@ -554,7 +645,7 @@ tasks.register<Exec>("notarize") {
 tasks.register<Exec>("staple") {
     dependsOn("notarize")
 
-    inputs.file(tasks.named("jpackage").get().outputs.files.filter { it.extension == "dmg" }.first())
+    inputs.file(tasks.named("jpackageForMac").get().outputs.files.filter { it.extension == "dmg" }.first())
 
     commandLine(
         "/usr/bin/xcrun",
@@ -566,8 +657,8 @@ tasks.register<Exec>("staple") {
 }
 
 tasks.register<Exec>("convertToPkg") {
-    dependsOn("jpackage")
-    val app = tasks.named("jpackage").get().outputs.files.filter { it.extension == "app" }.first()
+    dependsOn("jpackageForMac")
+    val app = tasks.named("jpackageForMac").get().outputs.files.filter { it.extension == "app" }.first()
     inputs.dir(app)
     outputs.file(layout.buildDirectory.dir("pkg").get().file("Backdoor.pkg"))
     commandLine(
