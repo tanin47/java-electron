@@ -17,18 +17,12 @@ import java.util.logging.Logger;
 import static tanin.javaelectron.nativeinterface.WebviewNative.N;
 
 public class Browser {
-  public static interface OnFileSelected {
-    void invoke(String path);
-  }
-
   private static final Logger logger = Logger.getLogger(Browser.class.getName());
 
   String url;
   boolean isDebug;
   private long pointer;
   SelfSignedCertificate cert;
-
-  private static final String OS_NAME = System.getProperty("os.name").toLowerCase();
 
   private MacOsApi.OnFileSelected onFileSelected = null;
 
@@ -78,6 +72,10 @@ public class Browser {
     }
   }
 
+  public static interface OnFileSelected {
+    void invoke(String path);
+  }
+
   void openFileDialog(boolean isSaved, OnFileSelected fileSelected) {
     if (Base.CURRENT_OS == Base.OperatingSystem.WINDOWS) {
       var thread = new Thread(() -> {
@@ -114,7 +112,7 @@ public class Browser {
           MacOsApi.N.openFile(onFileSelected);
         }
     } else {
-      throw new RuntimeException("Unsupported OS: " + OS_NAME);
+      throw new RuntimeException("Unsupported OS: " + Base.CURRENT_OS);
     }
   }
 }
