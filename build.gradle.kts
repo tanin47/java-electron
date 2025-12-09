@@ -46,31 +46,28 @@ val macDeveloperApplicationCertName = if (isNotarizing) {
 } else {
     "3rd Party Mac Developer Application: Tanin Na Nakorn (S6482XAL5E)"
 }
-val appleEmail = if (System.getenv("APPLE_EMAIL") != null) {
-    System.getenv("APPLE_EMAIL")
-} else {
+
+fun getSecret(envKey: String, filePath: String): String? {
+    if (System.getenv(envKey) != null) {
+        return System.getenv(envKey)
+    }
+
     try {
-        project.file("./secret/APPLE_EMAIL").readText().trim()
+        return project.file(filePath).readText().trim()
     } catch (e: Exception) {
-        "The-apple-email-is-not-specified"
+        return null
     }
 }
-val appleAppSpecificPassword = if (System.getenv("APPLE_APP_SPECIFIC_PASSWORD") != null) {
-    System.getenv("APPLE_APP_SPECIFIC_PASSWORD")
-} else {
-    try {
-        project.file("./secret/APPLE_APP_SPECIFIC_PASSWORD").readText().trim()
-    } catch (e: Exception) {
-        "The-apple-app-specific-password-is-not-specified"
-    }
-}
+
+val appleEmail = getSecret("APPLE_EMAIL", "./secret/APPLE_EMAIL")
+val appleAppSpecificPassword = getSecret("APPLE_APP_SPECIFIC_PASSWORD","./secret/APPLE_APP_SPECIFIC_PASSWORD")
 val appleTeamId = "S6482XAL5E"
 
 group = "tanin.javaelectron"
 val appName = "JavaElectron"
 val packageIdentifier = "tanin.javaelectron.macos.app"
 version = "1.1"
-val internalVersion = "1.1.0"
+val internalVersion = "1.1.1"
 
 description = "Build cross-platform desktop apps with Java, JavaScript, HTML, and CSS"
 
@@ -301,24 +298,34 @@ private fun runCmd(vararg args: String): String {
     return runCmd(layout.projectDirectory.asFile, *args)
 }
 
-private fun codesign(file: File, useRuntimeEntitlement: Boolean = false) {
+enum class EntitlementType {
+    NoEntitlement,
+    MainEntitlement,
+    RuntimeEntitlement
+}
+
+
+private fun codesign(file: File, entitlementType: EntitlementType = EntitlementType.NoEntitlement) {
     if (currentOS == OS.MAC) {
+        val entitlementArgs = when (entitlementType) {
+            EntitlementType.NoEntitlement -> emptyList()
+            EntitlementType.MainEntitlement -> listOf("--entitlements", "entitlements.plist")
+            EntitlementType.RuntimeEntitlement -> listOf("--entitlements", "runtime-entitlements.plist")
+        }
+
         runCmd(
-            "codesign",
-            "-vvvv",
-            "--options",
-            "runtime",
-            "--entitlements",
-            if (useRuntimeEntitlement) {
-                "runtime-entitlements.plist"
-            } else {
-                "entitlements.plist"
-            },
-            "--timestamp",
-            "--force",
-            "--sign",
-            macDeveloperApplicationCertName,
-            file.absolutePath,
+            *(listOf(
+                "codesign",
+                "-vvvv",
+                "--options",
+                "runtime",
+            ) + entitlementArgs + listOf(
+                "--timestamp",
+                "--force",
+                "--sign",
+                macDeveloperApplicationCertName,
+                file.absolutePath,
+            )).toTypedArray()
         )
     }
 }
@@ -359,10 +366,9 @@ private fun codesignInJar(jarFile: File, nativeLibPath: File) {
     tmpDir.walk()
         .filter { it.isFile && isCodesignable(it) }
         .forEach { libFile ->
+            codesign(libFile)
 
             if (isValidLibFile(libFile)) {
-                println("")
-                codesign(libFile)
                 runCmd("cp", libFile.absolutePath, nativeLibPath.absolutePath)
             }
 
@@ -402,11 +408,11 @@ tasks.register("codesignLibsInJars") {
     }
 }
 
-private fun codesignDir(dir: File, useRuntimeEntitlement: Boolean = false) {
+private fun codesignDir(dir: File) {
     dir.walk()
         .filter { it.isFile && isCodesignable(it) }
         .forEach { libFile ->
-            codesign(libFile, useRuntimeEntitlement)
+            codesign(libFile, EntitlementType.NoEntitlement)
         }
 }
 
@@ -423,7 +429,7 @@ tasks.register("macosCodesignProvisionprofile") {
         codesign(provisionprofileDir.file("embedded.provisionprofile").asFile)
 
         removeQuarantine(provisionprofileDir.file("runtime.provisionprofile").asFile)
-        codesign(provisionprofileDir.file("runtime.provisionprofile").asFile, useRuntimeEntitlement = true)
+        codesign(provisionprofileDir.file("runtime.provisionprofile").asFile)
     }
 }
 
@@ -580,10 +586,14 @@ tasks.register("jpackageForMac") {
             outputAppFile.resolve("Contents/runtime/Contents/embedded.provisionprofile").toPath()
         )
 
-        codesignDir(outputAppFile.resolve("Contents/runtime"), useRuntimeEntitlement = true)
+        codesignDir(outputAppFile.resolve("Contents/runtime"))
 
-        codesign(outputAppFile.resolve("Contents/runtime"), useRuntimeEntitlement = true)
-        codesign(outputAppFile)
+        codesign(
+            outputAppFile.resolve("Contents/runtime/Contents/Home/lib/jspawnhelper"),
+            EntitlementType.RuntimeEntitlement
+        )
+        codesign(outputAppFile.resolve("Contents/runtime"))
+        codesign(outputAppFile, EntitlementType.MainEntitlement)
 
         outputDmgDir.deleteRecursively()
         outputDmgDir.mkdirs()
@@ -626,7 +636,7 @@ tasks.register("jpackageForWindows") {
                 "sign",
                 "-input_file_path=${inputs.files.singleFile.absolutePath}",
                 "-output_dir_path=${outputAppDir.absolutePath}",
-                "-program_name=JavaElectron",
+                "-program_name=${appName}",
                 "-username=${System.getenv("SSL_COM_USERNAME")}",
                 "-password=${System.getenv("SSL_COM_PASSWORD")}",
                 "-totp_secret=${System.getenv("SSL_COM_TOTP_SECRET")}",
@@ -641,21 +651,23 @@ tasks.register("jpackage") {
     dependsOn("bareJpackage", "jpackageForMac", "jpackageForWindows")
 }
 
-tasks.register<Exec>("notarize") {
+tasks.register("notarize") {
     dependsOn("jpackageForMac")
 
     inputs.file(tasks.named("jpackageForMac").get().outputs.files.filter { it.extension == "dmg" }.first())
 
-    commandLine(
-        "/usr/bin/xcrun",
-        "notarytool",
-        "submit",
-        "--wait",
-        "--apple-id", appleEmail,
-        "--password", appleAppSpecificPassword,
-        "--team-id", appleTeamId,
-        inputs.files.singleFile.absolutePath,
-    )
+    doLast {
+        runCmd(
+            "/usr/bin/xcrun",
+            "notarytool",
+            "submit",
+            "--wait",
+            "--apple-id", appleEmail!!,
+            "--password", appleAppSpecificPassword!!,
+            "--team-id", appleTeamId,
+            inputs.files.singleFile.absolutePath,
+        )
+    }
 }
 
 
@@ -687,31 +699,37 @@ tasks.register<Exec>("convertToPkg") {
     )
 }
 
-tasks.register<Exec>("validatePkg") {
+tasks.register("validatePkg") {
     dependsOn("convertToPkg")
     inputs.file(tasks.named("convertToPkg").get().outputs.files.singleFile)
-    commandLine(
-        "/usr/bin/xcrun",
-        "altool",
-        "--validate-app",
-        "-f", inputs.files.singleFile.absolutePath,
-        "-t", "osx",
-        "-u", appleEmail,
-        "-p", appleAppSpecificPassword
-    )
+
+    doLast {
+        runCmd(
+            "/usr/bin/xcrun",
+            "altool",
+            "--validate-app",
+            "-f", inputs.files.singleFile.absolutePath,
+            "-t", "osx",
+            "-u", appleEmail!!,
+            "-p", appleAppSpecificPassword!!
+        )
+    }
 }
 
 
-tasks.register<Exec>("uploadPkgToAppStore") {
+tasks.register("uploadPkgToAppStore") {
     dependsOn("validatePkg")
     inputs.file(tasks.named("convertToPkg").get().outputs.files.singleFile)
-    commandLine(
-        "/usr/bin/xcrun",
-        "altool",
-        "--upload-app",
-        "-f", inputs.files.singleFile.absolutePath,
-        "-t", "osx",
-        "-u", appleEmail,
-        "-p", appleAppSpecificPassword
-    )
+
+    doLast {
+        runCmd(
+            "/usr/bin/xcrun",
+            "altool",
+            "--upload-app",
+            "-f", inputs.files.singleFile.absolutePath,
+            "-t", "osx",
+            "-u", appleEmail!!,
+            "-p", appleAppSpecificPassword!!
+        )
+    }
 }
