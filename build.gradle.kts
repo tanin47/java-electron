@@ -155,7 +155,7 @@ repositories {
 }
 
 dependencies {
-    implementation("com.renomad:minum:8.3.1")
+    implementation("com.renomad:minum:8.3.2")
     implementation("net.java.dev.jna:jna:5.14.0")
     implementation("com.eclipsesource.minimal-json:minimal-json:0.9.5")
 
